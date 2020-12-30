@@ -155,10 +155,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\include\cvk\cvk-render\cvkRenderer.h" />
     <ClInclude Include="..\..\..\include\cvk\cvk-util\cvkConsole.h" />
     <ClInclude Include="..\..\..\include\cvk\cvk.h" />
+    <ClInclude Include="..\..\..\include\cvk\cvk\cvk-types.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\source\cvk\cvk-render\cvkRenderer.c" />
     <ClCompile Include="..\..\..\source\cvk\cvk-util\cvkConsole.c" />
     <ClCompile Include="..\..\..\source\cvk\cvk.c" />
   </ItemGroup>

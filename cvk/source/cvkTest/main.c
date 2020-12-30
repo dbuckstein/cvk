@@ -22,10 +22,6 @@
 	Entry point source for application.
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include "cvk/cvk.h"
 
 
@@ -45,9 +41,12 @@ int main()
 {
 	int status = 0, result = 0;
 	cvkConsole console[1] = { 0 };
+	cvkRenderer renderer[1] = { 0 };
 
 	status = cvkConsoleCreateMain(console);
-
+	status = cvkRendererCreate(renderer);
+	result = cvkRendererTest(renderer);
+	status = cvkRendererRelease(renderer);
 	status = cvkConsoleReleaseMain(console);
 
 	return result;

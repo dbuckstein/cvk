@@ -19,6 +19,15 @@
     <Filter Include="Source Files\cvk-util">
       <UniqueIdentifier>{c7fd75ed-d5d3-4d70-88f5-c1231ff8f3ae}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\cvk-render">
+      <UniqueIdentifier>{ff0726d8-ee9f-4934-b876-7271b903c29a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\cvk-render">
+      <UniqueIdentifier>{2ce2e96d-6e2a-4729-b6ed-ffbe682073eb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\cvk">
+      <UniqueIdentifier>{24df2ebb-cc3f-40dd-9c70-3f32aea7fdd4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\cvk\cvk.h">
@@ -27,6 +36,12 @@
     <ClInclude Include="..\..\..\include\cvk\cvk-util\cvkConsole.h">
       <Filter>Header Files\cvk-util</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\cvk\cvk-render\cvkRenderer.h">
+      <Filter>Header Files\cvk-render</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\include\cvk\cvk\cvk-types.h">
+      <Filter>Header Files\cvk</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\source\cvk\cvk.c">
@@ -34,6 +49,9 @@
     </ClCompile>
     <ClCompile Include="..\..\..\source\cvk\cvk-util\cvkConsole.c">
       <Filter>Source Files\cvk-util</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\source\cvk\cvk-render\cvkRenderer.c">
+      <Filter>Source Files\cvk-render</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
