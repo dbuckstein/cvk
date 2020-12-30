@@ -42,7 +42,16 @@ int __stdcall WinMain(
 
 #endif	// _WIN32
 {
+	int status = 0;
+	cvkConsole console[1] = { 0 };
 
+	cvkConsoleCreateMain(console);
+
+	scanf("%d", &status);
+	printf("%d", status);
+	dprintf("%d", status);
+
+	cvkConsoleReleaseMain(console);
 }
 
 

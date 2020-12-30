@@ -155,9 +155,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\include\cvk\cvk-util\cvkConsole.h" />
     <ClInclude Include="..\..\..\include\cvk\cvk.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\source\cvk\cvk-util\cvkConsole.c" />
     <ClCompile Include="..\..\..\source\cvk\cvk.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
