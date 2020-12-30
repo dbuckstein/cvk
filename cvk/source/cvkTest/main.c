@@ -34,24 +34,23 @@
 #ifdef _WIN32
 // Windows entry point.
 int __stdcall WinMain(
-	void const* const hInstance,
-	void const* const hPrevInstance,
-	char const* const lpCmdLine,
+	kptr const hInstance,
+	kptr const hPrevInstance,
+	kstr const lpCmdLine,
 	int const nCmdShow)
 #else	// !_WIN32
-
+// Other.
+int main()
 #endif	// _WIN32
 {
-	int status = 0;
+	int status = 0, result = 0;
 	cvkConsole console[1] = { 0 };
 
-	cvkConsoleCreateMain(console);
+	status = cvkConsoleCreateMain(console);
 
-	scanf("%d", &status);
-	printf("%d", status);
-	dprintf("%d", status);
+	status = cvkConsoleReleaseMain(console);
 
-	cvkConsoleReleaseMain(console);
+	return result;
 }
 
 

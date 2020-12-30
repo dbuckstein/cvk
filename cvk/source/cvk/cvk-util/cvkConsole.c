@@ -129,7 +129,7 @@ int cvkConsoleCreateMain(cvkConsole* const console)
 	if (console)
 	{
 		// if console not already open
-		void* handle = GetConsoleWindow();
+		ptr handle = GetConsoleWindow();
 		if (!handle && !console->handle[3])
 		{
 			// allocate and show console
@@ -166,7 +166,7 @@ int cvkConsoleReleaseMain(cvkConsole* const console)
 	if (console)
 	{
 		// if console exists
-		void* const handle = GetConsoleWindow();
+		ptr const handle = GetConsoleWindow();
 		if ((console->handle[3] == handle) && handle)
 		{
 			// reset to original standard i/o
@@ -190,24 +190,60 @@ int cvkConsoleReleaseMain(cvkConsole* const console)
 }
 
 
-int cvkConsolePrintDebug(char const* const format, ...)
+int cvkConsolePrintDebug(kstr const format, ...)
 {
 	if (format)
 	{
-		char str[256] = { 0 };
+		char buff[256] = { 0 };
 		va_list args = 0;
 		int result = 0;
 
 		// fill buffer with formatted arguments
 		va_start(args, format);
-		result = _vsnprintf(str, sizeof(str), format, args);
+		result = _vsnprintf(buff, sizeof(buff), format, args);
 		va_end(args);
 
 		// internal print
-		OutputDebugStringA(str);
+		OutputDebugStringA(buff);
 
 		// return length
 		return result;
+	}
+	return -1;
+}
+
+
+//-----------------------------------------------------------------------------
+
+#else	// !_WIN32
+
+//-----------------------------------------------------------------------------
+
+int cvkConsoleCreateMain(cvkConsole* const console)
+{
+	if (console)
+	{
+
+	}
+	return -1;
+}
+
+
+int cvkConsoleReleaseMain(cvkConsole* const console)
+{
+	if (console)
+	{
+
+	}
+	return -1;
+}
+
+
+int cvkConsolePrintDebug(kstr const format, ...)
+{
+	if (console)
+	{
+
 	}
 	return -1;
 }
