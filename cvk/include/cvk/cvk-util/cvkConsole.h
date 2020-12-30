@@ -49,7 +49,7 @@ extern "C" {
 //	Console organizational structure.
 //		member handle: array of internal stream handles
 //		member io: array of internal stream data
-typedef struct cvkTag_cvkConsole
+typedef struct cvkConsole
 {
 	ptr handle[4];		// Internal stream handles.
 	int io[3];			// Internal stream data.

@@ -41,9 +41,13 @@ extern "C" {
 // cvkRenderer
 //	Renderer organizational structure.
 //		member init: initialized flag
-typedef struct cvkTag_cvkRenderer
+//		member data: internal data
+//		member func: internal management functions
+typedef struct cvkRenderer
 {
 	bool init;		// Initialized flag.
+	ptr data[2];	// Internal data.
+	ptr func;		// Internal management functions.
 } cvkRenderer;
 
 
