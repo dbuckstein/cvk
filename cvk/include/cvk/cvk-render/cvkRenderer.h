@@ -42,12 +42,10 @@ extern "C" {
 //	Renderer organizational structure.
 //		member init: initialized flag
 //		member data: internal data
-//		member func: internal management functions
 typedef struct cvkRenderer
 {
 	bool init;		// Initialized flag.
-	ptr data[3];	// Internal data.
-	ptr func;		// Internal management functions.
+	ptr data[4];	// Internal data.
 } cvkRenderer;
 
 
