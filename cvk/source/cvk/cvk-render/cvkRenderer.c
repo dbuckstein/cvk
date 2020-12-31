@@ -38,6 +38,71 @@
 
 //-----------------------------------------------------------------------------
 
+// cvk_arrlen
+//	Get number of elements in a sized array.
+#define cvk_arrlen(arr) (sizeof(arr) / sizeof(*arr))
+
+// cvk_arrlen_p
+//	Get number of elements in an array of pointers (excluding null at end).
+inline int cvk_arrlen_p(kptr* arr)
+{
+	int n = 0;
+	while (*arr)
+	{
+		++arr;
+		++n;
+	}
+	return n;
+}
+
+// cvk_arrlen_pl
+//	Get number of elements in an array of pointers, up to a maximum length.
+inline int cvk_arrlen_pl(kptr const* arr, ui32 const len)
+{
+	int n = 0;
+	kptr const* const end = arr + len;
+	while ((arr < end) && *arr)
+	{
+		++arr;
+		++n;
+	}
+	return n;
+}
+
+// cvk_strfind_p
+//	Find a string in an array of strings, returning index (negative if fail).
+inline int cvk_strfind_p(kstr const key, kstr const* arr)
+{
+	int n = 0;
+	while (*arr)
+	{
+		if (!strcmp(key, *arr))
+			return n;
+		++arr;
+		++n;
+	}
+	return -1;
+}
+
+// cvk_strfind_pl
+//	Find a string in an array of strings, returning index (negative if fail).
+inline int cvk_strfind_pl(kstr const key, kstr const* arr, ui32 const len)
+{
+	int n = 0;
+	kstr const* const end = arr + len;
+	while ((arr < end) && *arr)
+	{
+		if (!strcmp(key, *arr))
+			return n;
+		++arr;
+		++n;
+	}
+	return -1;
+}
+
+
+//-----------------------------------------------------------------------------
+
 // cvkRendererData
 //	Internal renderer data indices.
 enum cvkRendererData
@@ -159,7 +224,9 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 	if (renderer && !renderer->init)
 	{
 		int result = -2;
+		int n = -1;
 		ui32 i = 0, j = 0, k = 0;
+		kstr name = NULL;
 
 
 		//---------------------------------------------------------------------
@@ -185,33 +252,69 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		VkLayerProperties* layerProp = NULL;
 		// array of extension info for each layer
 		VkExtensionProperties* extensionProp = NULL;
+
 		// application info for instance
 		VkApplicationInfo const appInfo = {
 			VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL,
-			"cvkTest", VK_MAKE_VERSION(0, 0, 0), "cvk", VK_MAKE_VERSION(0, 0, 0), VK_API_VERSION_1_0,
+			"cvkTest", VK_MAKE_VERSION(0, 0, 1), "cvk", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_0,
 		};
-		// layers to be enabled for instance
-		kstr const layerInfo[] = {
-			//"VK_LAYER_KHRONOS_validation",
+
+		// layers to be searched and enabled for instance
+		kstr const layerInfo_inst[] = {
+#ifdef _DEBUG
+			"VK_LAYER_KHRONOS_validation",
+			"VK_LAYER_LUNARG_api_dump",
 			"VK_LAYER_LUNARG_standard_validation",
+			//"VK_LAYER_LUNARG_monitor",
 			//"VK_LAYER_LUNARG_object_tracker",
+#else	// !_DEBUG
+			NULL
+#endif	// _DEBUG
 		};
-		// extensions to be enabled for instance
-		kstr const extInfo[] = {
+		// extensions to be searched and enabled for instance
+		kstr const extInfo_inst[] = {
+#ifdef _DEBUG
+			"VK_EXT_debug_report",
+			"VK_EXT_debug_utils",
+			"VK_EXT_validation_features",
+#else	// !_DEBUG
+			NULL
+#endif	// _DEBUG
+		};
+		// required layers
+		kstr const layerInfo_inst_req[] = {
+			NULL
+		};
+		// required extensions
+		kstr const extInfo_inst_req[] = {
 			VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef _WIN32
 			VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 #else	// !_WIN32
 #endif	// _WIN32
-			//"VK_EXT_debug_report",
-			//"VK_EXT_debug_utils",
-			//"VK_EXT_validation_features",
 		};
+		// number of layers in original array
+		ui32 const layerInfoLen_inst = cvk_arrlen(layerInfo_inst);
+		// number of required layers in original array
+		ui32 const layerInfoLen_inst_req = cvk_arrlen(layerInfo_inst_req);
+		// number of extensions in original array
+		ui32 const extInfoLen_inst = cvk_arrlen(extInfo_inst);
+		// number of required extensions in original array
+		ui32 const extInfoLen_inst_req = cvk_arrlen(extInfo_inst_req);
+		// final layers to be used with instance
+		kstr layerInfoFinal_inst[cvk_arrlen(layerInfo_inst) + cvk_arrlen(layerInfo_inst_req)] = { 0 };
+		// final extensions to be used with instance
+		kstr extInfoFinal_inst[cvk_arrlen(extInfo_inst) + cvk_arrlen(extInfo_inst_req)] = { 0 };
+		// maximum final layers
+		ui32 const layerInfoLenFinal_inst = cvk_arrlen(layerInfoFinal_inst);
+		// maximum final extensions
+		ui32 const extInfoLenFinal_inst = cvk_arrlen(extInfoFinal_inst);
+
 		// instance initialization info
-		VkInstanceCreateInfo const instInfo = {
+		VkInstanceCreateInfo instInfo = {
 			VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &appInfo,
-			(sizeof(layerInfo) / sizeof(*layerInfo)), layerInfo,
-			(sizeof(extInfo) / sizeof(*extInfo)), extInfo,
+			cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst), layerInfoFinal_inst,
+			cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst), extInfoFinal_inst,
 		}, * instInfoPtr = &instInfo;
 
 
@@ -232,15 +335,65 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		VkPhysicalDeviceMemoryProperties physicalDeviceMemProp = { 0 };
 		// device queue family properties
 		VkQueueFamilyProperties* queueFamilyProp = NULL;
+
+		// layers to be searched and enabled for device
+		kstr const layerInfo_device[] = {
+#ifdef _DEBUG
+			"VK_LAYER_KHRONOS_validation",
+			"VK_LAYER_LUNARG_api_dump",
+			"VK_LAYER_LUNARG_standard_validation",
+#else	// !_DEBUG
+			NULL
+#endif	// _DEBUG
+		};
+		// extensions to be searched and enabled for device
+		kstr const extInfo_device[] = {
+#ifdef _DEBUG
+			"VK_EXT_validation_cache",
+			"VK_EXT_debug_marker",
+			"VK_EXT_tooling_info",
+#else	// !_DEBUG
+			NULL
+#endif	// _DEBUG
+		};
+		// required layers
+		kstr const layerInfo_device_req[] = {
+			NULL
+		};
+		// required extensions
+		kstr const extInfo_device_req[] = {
+			NULL
+		};
+		// number of layers in original array
+		ui32 const layerInfoLen_device = cvk_arrlen(layerInfo_device);
+		// number of required layers in original array
+		ui32 const layerInfoLen_device_req = cvk_arrlen(layerInfo_device_req);
+		// number of extensions in original array
+		ui32 const extInfoLen_device = cvk_arrlen(extInfo_device);
+		// number of required extensions in original array
+		ui32 const extInfoLen_device_req = cvk_arrlen(extInfo_device_req);
+		// final layers to be used with device
+		kstr layerInfoFinal_device[cvk_arrlen(layerInfo_device) + cvk_arrlen(layerInfo_device_req)] = { 0 };
+		// final extensions to be used with device
+		kstr extInfoFinal_device[cvk_arrlen(extInfo_device) + cvk_arrlen(extInfo_device_req)] = { 0 };
+		// maximum final layers
+		ui32 const layerInfoLenFinal_device = cvk_arrlen(layerInfoFinal_device);
+		// maximum final extensions
+		ui32 const extInfoLenFinal_device = cvk_arrlen(extInfoFinal_device);
+
 		// queue creation info
 		VkDeviceQueueCreateInfo const queueInfo = {
 			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL,
 			0, 0, 1, NULL,
-		}, * queueInfoPtr = &queueInfo;
+		};
+
 		// logical device creation info
-		VkDeviceCreateInfo const logicalDeviceInfo = {
-			VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, NULL,
-			0, 1, queueInfoPtr, 0, NULL, 0, NULL, &physicalDeviceFeatReq,
+		VkDeviceCreateInfo logicalDeviceInfo = {
+			VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, NULL, 0,
+			1, &queueInfo,
+			cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device), layerInfoFinal_device,
+			cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device), extInfoFinal_device,
+			&physicalDeviceFeatReq,
 		}, * logicalDeviceInfoPtr = &logicalDeviceInfo;
 
 
@@ -268,19 +421,47 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			printf("\t nLayer = %u: { \"layerName\" (specVer; implVer) \"description\" } \n", nLayer);
 			for (i = 0; i < nLayer; ++i)
 			{
-				cvkRendererInternalPrintLayer(layerProp + i, i, "\t  ");
+				// search layer in final list, requested list and required list
+				name = layerProp[i].layerName;
+				n = cvk_strfind_pl(name, layerInfoFinal_inst, instInfo.enabledLayerCount);
+				if (n < 0)
+				{
+					// search for name in requested list, add to final if found
+					n = cvk_strfind_pl(name, layerInfo_inst, layerInfoLen_inst);
+					if (n >= 0)
+						layerInfoFinal_inst[instInfo.enabledLayerCount++] = layerInfo_inst[n];
+					// search required list
+					else
+						n = cvk_strfind_pl(name, layerInfo_inst_req, layerInfoLen_inst_req);
+				}
+
+				// print layer info, indicating whether it is requested
+				cvkRendererInternalPrintLayer(layerProp + i, i, (n >= 0 ? "\t->" : "\t  "));
 
 				// enumerate extensions for each layer
-				vkEnumerateInstanceExtensionProperties(layerProp[i].layerName, &nExtension, NULL);
+				vkEnumerateInstanceExtensionProperties(name, &nExtension, NULL);
 				if (nExtension)
 				{
 					// iterate through extensions
 					extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
-					vkEnumerateInstanceExtensionProperties(layerProp[i].layerName, &nExtension, extensionProp);
+					vkEnumerateInstanceExtensionProperties(name, &nExtension, extensionProp);
 					printf("\t\t nExtension = %u: { \"extensionName\" (specVer) } \n", nExtension);
 					for (j = 0; j < nExtension; ++j)
 					{
-						cvkRendererInternalPrintExtension(extensionProp + j, j, "\t\t  ");
+						// search extension
+						name = extensionProp[j].extensionName;
+						n = cvk_strfind_pl(name, extInfoFinal_inst, instInfo.enabledExtensionCount);
+						if (n < 0)
+						{
+							n = cvk_strfind_pl(name, extInfo_inst, extInfoLen_inst);
+							if (n >= 0)
+								extInfoFinal_inst[instInfo.enabledExtensionCount++] = extInfo_inst[n];
+							else
+								n = cvk_strfind_pl(name, extInfo_inst_req, extInfoLen_inst_req);
+						}
+
+						// print extension info, indicating whether it is requested
+						cvkRendererInternalPrintExtension(extensionProp + j, j, (n >= 0 ? "\t\t->" : "\t\t  "));
 					}
 
 					// release extension list
@@ -293,6 +474,18 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			free(layerProp);
 			layerProp = NULL;
 		}
+
+		// add required layers and extensions
+		for (i = 0; i < layerInfoLen_inst_req; ++i)
+			if (layerInfo_inst_req[i] && layerInfo_inst_req[i][0])
+				layerInfoFinal_inst[instInfo.enabledLayerCount++] = layerInfo_inst_req[i];
+		for (i = 0; i < extInfoLen_inst_req; ++i)
+			if (extInfo_inst_req[i] && extInfo_inst_req[i][0])
+				extInfoFinal_inst[instInfo.enabledExtensionCount++] = extInfo_inst_req[i];
+
+		// confirm counts are equal
+		n = (instInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst));
+		n = (instInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst));
 
 		// create instance
 		vkCreateInstance(instInfoPtr, instAllocPtr, &inst);
@@ -327,19 +520,45 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 						printf("\t\t nLayer = %u: \n", nLayer);
 						for (j = 0; j < nLayer; ++j)
 						{
-							cvkRendererInternalPrintLayer(layerProp + j, j, "\t\t  ");
+							// search layer
+							name = layerProp[j].layerName;
+							n = cvk_strfind_pl(name, layerInfoFinal_device, logicalDeviceInfo.enabledLayerCount);
+							if (n < 0)
+							{
+								n = cvk_strfind_pl(name, layerInfo_device, layerInfoLen_device);
+								if (n >= 0)
+									layerInfoFinal_device[logicalDeviceInfo.enabledLayerCount++] = layerInfo_device[n];
+								else
+									n = cvk_strfind_pl(name, layerInfo_device_req, layerInfoLen_device_req);
+							}
+
+							// print layer info
+							cvkRendererInternalPrintLayer(layerProp + j, j, (n >= 0 ? "\t\t->" : "\t\t  "));
 
 							// enumerate extensions for each layer
-							vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], layerProp[j].layerName, &nExtension, NULL);
+							vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], name, &nExtension, NULL);
 							if (nExtension)
 							{
 								// iterate through extensions
 								extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
-								vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], layerProp[j].layerName, &nExtension, extensionProp);
+								vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], name, &nExtension, extensionProp);
 								printf("\t\t\t nExtension = %u: \n", nExtension);
 								for (k = 0; k < nExtension; ++k)
 								{
-									cvkRendererInternalPrintExtension(extensionProp + k, k, "\t\t\t  ");
+									// search extension
+									name = extensionProp[k].extensionName;
+									n = cvk_strfind_pl(name, extInfoFinal_device, logicalDeviceInfo.enabledExtensionCount);
+									if (n < 0)
+									{
+										n = cvk_strfind_pl(name, extInfo_device, extInfoLen_device);
+										if (n >= 0)
+											extInfoFinal_device[logicalDeviceInfo.enabledExtensionCount++] = extInfo_device[n];
+										else
+											n = cvk_strfind_pl(name, extInfo_device_req, extInfoLen_device_req);
+									}
+
+									// print extension info
+									cvkRendererInternalPrintExtension(extensionProp + k, k, (n >= 0 ? "\t\t\t->" : "\t\t\t  "));
 								}
 
 								// release extension list
@@ -357,12 +576,13 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 					vkGetPhysicalDeviceQueueFamilyProperties(physicalDeviceList[i], &nQueueFamily, NULL);
 					if (nQueueFamily)
 					{
-						// allocate and query queue family properties
+						// allocate and enumerate queue family properties
 						queueFamilyProp = (VkQueueFamilyProperties*)malloc(nQueueFamily * sizeof(VkQueueFamilyProperties));
 						vkGetPhysicalDeviceQueueFamilyProperties(physicalDeviceList[i], &nQueueFamily, queueFamilyProp);
 						printf("\t\t nQueueFamily = %u: { [flags] (count) } \n", nQueueFamily);
 						for (j = 0; j < nQueueFamily; ++j)
 						{
+							// print queue family info
 							cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, j, "\t\t  ");
 						}
 
@@ -401,6 +621,18 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 				free(physicalDeviceList);
 				physicalDeviceList = NULL;
 			}
+
+			// add required layers and extensions
+			for (i = 0; i < layerInfoLen_device_req; ++i)
+				if (layerInfo_device_req[i] && layerInfo_device_req[i][0])
+					layerInfoFinal_device[logicalDeviceInfo.enabledLayerCount++] = layerInfo_device_req[i];
+			for (i = 0; i < extInfoLen_device_req; ++i)
+				if (extInfo_device_req[i] && extInfo_device_req[i][0])
+					extInfoFinal_device[logicalDeviceInfo.enabledExtensionCount++] = extInfo_device_req[i];
+
+			// confirm counts are equal
+			n = (logicalDeviceInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device));
+			n = (logicalDeviceInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device));
 
 			// create logical device
 			vkCreateDevice(physicalDevice, logicalDeviceInfoPtr, logicalDeviceAllocPtr, &logicalDevice);
