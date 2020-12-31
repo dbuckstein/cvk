@@ -51,13 +51,115 @@ enum cvkRendererData
 
 //-----------------------------------------------------------------------------
 
+inline int cvkRendererInternalPrintLayer(VkLayerProperties const* const layerProp, ui32 const index, kstr const prefix)
+{
+	return printf("%s layerProp[%u] = { \"%s\" (%u.%u.%u; %u.%u.%u): \"%s\" } \n", prefix, index,
+		layerProp->layerName,
+		VK_VERSION_MAJOR(layerProp->specVersion), VK_VERSION_MINOR(layerProp->specVersion), VK_VERSION_PATCH(layerProp->specVersion),
+		VK_VERSION_MAJOR(layerProp->implementationVersion), VK_VERSION_MINOR(layerProp->implementationVersion), VK_VERSION_PATCH(layerProp->implementationVersion),
+		layerProp->description);
+}
+
+inline int cvkRendererInternalPrintExtension(VkExtensionProperties const* const extensionProp, ui32 const index, kstr const prefix)
+{
+	return printf("%s extensionProp[%u] = { \"%s\" (%u.%u.%u) } \n", prefix, index,
+		extensionProp->extensionName,
+		VK_VERSION_MAJOR(extensionProp->specVersion), VK_VERSION_MINOR(extensionProp->specVersion), VK_VERSION_PATCH(extensionProp->specVersion));
+}
+
+inline int cvkRendererInternalSelectDeviceID(ui32 const id)
+{
+	// https://www.reddit.com/r/vulkan/comments/4ta9nj/is_there_a_comprehensive_list_of_the_names_and/ 
+	// 0x1002 - AMD
+	// 0x1010 - ImgTec
+	// 0x10DE - NVIDIA
+	// 0x13B5 - ARM
+	// 0x5143 - Qualcomm
+	// 0x8086 - INTEL
+
+	switch (id)
+	{
+	case 0x1002: return 1;
+	case 0x1010: return 2;
+	case 0x10DE: return 3;
+	case 0x13B5: return 4;
+	case 0x5143: return 5;
+	case 0x8086: return 6;
+
+	case 0x10000: return 8;
+	case VK_VENDOR_ID_VIV: return 9;
+	case VK_VENDOR_ID_VSI: return 10;
+	case VK_VENDOR_ID_KAZAN: return 11;
+	case VK_VENDOR_ID_CODEPLAY: return 12;
+	case VK_VENDOR_ID_MESA: return 13;
+	case 0x10006: return 14;
+	}
+	return 0;
+}
+
+inline int cvkRendererInternalPrintPhysicalDevice(VkPhysicalDeviceProperties const* const physicalDeviceProp, ui32 const index, kstr const prefix)
+{
+	kstr const deviceType[] = { "other", "integrated gpu", "discrete gpu", "virtual gpu", "cpu" };
+	kstr const deviceID[] = { 
+		"other", "amd", "imgtec", "nvidia", "arm", "qualcomm", "intel", 0,
+		"khr", "viv", "vsi", "kazan", "codeplay", "mesa", "pocl", 0,
+	};
+	ui32 const vID = cvkRendererInternalSelectDeviceID(physicalDeviceProp->vendorID);
+	ui32 const dID = cvkRendererInternalSelectDeviceID(physicalDeviceProp->deviceID);
+
+	return printf("%s physicalDeviceProp[%u] = { \"%s\" [%s] (%u.%u.%u; %u.%u.%u; %s; %s) } \n", prefix, index,
+		physicalDeviceProp->deviceName, deviceType[physicalDeviceProp->deviceType],
+		VK_VERSION_MAJOR(physicalDeviceProp->apiVersion), VK_VERSION_MINOR(physicalDeviceProp->apiVersion), VK_VERSION_PATCH(physicalDeviceProp->apiVersion),
+		VK_VERSION_MAJOR(physicalDeviceProp->driverVersion), VK_VERSION_MINOR(physicalDeviceProp->driverVersion), VK_VERSION_PATCH(physicalDeviceProp->driverVersion),
+		deviceID[vID], deviceID[dID]);
+}
+
+inline int cvkRendererInternalPrintQueueFamily(VkQueueFamilyProperties const* const queueFamilyProp, ui32 const index, kstr const prefix)
+{
+	kstr const queueFlag[] = { "[graphics]", "[compute]", "[transfer]", "[sparsebind]", "[protected]" };
+	return printf("%s queueFamilyProp[%u] = { [%s%s%s%s%s] (%u) } \n", prefix, index,
+		(queueFamilyProp->queueFlags & VK_QUEUE_GRAPHICS_BIT) ? queueFlag[0] : "",
+		(queueFamilyProp->queueFlags & VK_QUEUE_COMPUTE_BIT) ? queueFlag[1] : "",
+		(queueFamilyProp->queueFlags & VK_QUEUE_TRANSFER_BIT) ? queueFlag[2] : "",
+		(queueFamilyProp->queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) ? queueFlag[3] : "",
+		(queueFamilyProp->queueFlags & VK_QUEUE_PROTECTED_BIT) ? queueFlag[4] : "",
+		queueFamilyProp->queueCount);
+}
+
+inline int cvkRendererInternalPrintMemoryType(VkMemoryType const* const memoryType, ui32 const index, kstr const prefix)
+{
+	kstr const memoryTypeFlag[] = { "[device local]", "[host visible]", "[host coherent]", "[host cached]", "[lazy alloc]", "[protected]", "[device coherent AMD]", "[device uncached AMD]" };
+	return printf("%s memoryType[%u] = { [%s%s%s%s%s%s%s%s] (%u) } \n", prefix, index,
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? memoryTypeFlag[0] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ? memoryTypeFlag[1] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? memoryTypeFlag[2] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? memoryTypeFlag[3] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) ? memoryTypeFlag[4] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_PROTECTED_BIT) ? memoryTypeFlag[5] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD) ? memoryTypeFlag[6] : "",
+		(memoryType->propertyFlags & VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD) ? memoryTypeFlag[7] : "",
+		memoryType->heapIndex);
+}
+
+inline int cvkRendererInternalPrintMemoryHeap(VkMemoryHeap const* const memoryHeap, ui32 const index, kstr const prefix)
+{
+	kstr const memoryHeapFlag[] = { "[device local]", "[multi-instance]", "[multi-instance KHR]" };
+	return printf("%s memoryHeap[%u] = { [%s%s%s] (%llu) } \n", prefix, index,
+		(memoryHeap->flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? memoryHeapFlag[0] : "",
+		(memoryHeap->flags & VK_MEMORY_HEAP_MULTI_INSTANCE_BIT) ? memoryHeapFlag[1] : "",
+		(memoryHeap->flags & VK_MEMORY_HEAP_MULTI_INSTANCE_BIT_KHR) ? memoryHeapFlag[2] : "",
+		memoryHeap->size);
+}
+
+
+//-----------------------------------------------------------------------------
+
 int cvkRendererCreate(cvkRenderer* const renderer)
 {
 	if (renderer && !renderer->init)
 	{
 		int result = -2;
 		ui32 i = 0, j = 0, k = 0;
-		kstr const deviceType[] = { "other", "integrated gpu", "discrete gpu", "virtual gpu", "cpu" };
 
 
 		//---------------------------------------------------------------------
@@ -65,10 +167,12 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 
 		// instance
 		VkInstance inst = NULL;
+		// instance allocator
 		VkAllocationCallbacks const instAlloc = { 0 }, * instAllocPtr = NULL;
 
 		// logical device
 		VkDevice logicalDevice = NULL;
+		// logical device allocator
 		VkAllocationCallbacks const logicalDeviceAlloc = { 0 }, * logicalDeviceAllocPtr = NULL;
 
 
@@ -84,7 +188,7 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		// application info for instance
 		VkApplicationInfo const appInfo = {
 			VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL,
-			"cvkTest", 0, "cvk", 0, 0,
+			"cvkTest", VK_MAKE_VERSION(0, 0, 0), "cvk", VK_MAKE_VERSION(0, 0, 0), VK_API_VERSION_1_0,
 		};
 		// layers to be enabled for instance
 		kstr const layerInfo[] = {
@@ -151,37 +255,32 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 
 		// enumerate instance version
 		vkEnumerateInstanceVersion(&instVersion);
-		printf("\t instVersion = %u \n", instVersion);
+		printf("\t instVer = %u.%u.%u \n",
+			VK_VERSION_MAJOR(instVersion), VK_VERSION_MINOR(instVersion), VK_VERSION_PATCH(instVersion));
 
 		// enumerate instance layers
 		vkEnumerateInstanceLayerProperties(&nLayer, NULL);
 		if (nLayer)
 		{
-			printf("\t nLayer = %u: { \"layerName\" (specVersion.implementationVersion) \"description\" } \n", nLayer);
-			
 			// iterate through layers and enumerate extensions
 			layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
 			vkEnumerateInstanceLayerProperties(&nLayer, layerProp);
+			printf("\t nLayer = %u: { \"layerName\" (specVer; implVer) \"description\" } \n", nLayer);
 			for (i = 0; i < nLayer; ++i)
 			{
-				printf("\t layerProp[%u] = { \"%s\" (%u.%u): \"%s\" } \n", i,
-					layerProp[i].layerName,
-					layerProp[i].specVersion, layerProp[i].implementationVersion,
-					layerProp[i].description);
+				cvkRendererInternalPrintLayer(layerProp + i, i, "\t  ");
 
 				// enumerate extensions for each layer
 				vkEnumerateInstanceExtensionProperties(layerProp[i].layerName, &nExtension, NULL);
 				if (nExtension)
 				{
-					printf("\t\t nExtension = %u: { \"extensionName\" (specVersion) } \n", nExtension);
-
 					// iterate through extensions
 					extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
 					vkEnumerateInstanceExtensionProperties(layerProp[i].layerName, &nExtension, extensionProp);
+					printf("\t\t nExtension = %u: { \"extensionName\" (specVer) } \n", nExtension);
 					for (j = 0; j < nExtension; ++j)
 					{
-						printf("\t\t extensionProp[%u] = { \"%s\" (%u) } \n", j,
-							extensionProp[j].extensionName, extensionProp[j].specVersion);
+						cvkRendererInternalPrintExtension(extensionProp + j, j, "\t\t  ");
 					}
 
 					// release extension list
@@ -208,49 +307,39 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, NULL);
 			if (nPhysicalDevice)
 			{
-				printf("\t nPhysicalDevice = %u: { \"name\": \"type\" (apiVer.driverVer.vendorID.deviceID) } \n", nPhysicalDevice);
-
 				// alloc device info
 				physicalDeviceList = (VkPhysicalDevice*)malloc(nLayer * sizeof(VkPhysicalDevice));
 				vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, physicalDeviceList);
+				printf("\t nPhysicalDevice = %u: { \"name\" [type] (apiVer; driverVer; vendorId; deviceId) } \n", nPhysicalDevice);
 				for (i = 0; i < nPhysicalDevice; ++i)
 				{
 					// query device properties
 					vkGetPhysicalDeviceProperties(physicalDeviceList[i], &physicalDeviceProp);
-					printf("\t physicalDeviceList[%u] = { \"%s\": \"%s\" (%u.%u.%u.%u) } \n", i,
-						physicalDeviceProp.deviceName, deviceType[physicalDeviceProp.deviceType],
-						physicalDeviceProp.apiVersion, physicalDeviceProp.driverVersion,
-						physicalDeviceProp.vendorID, physicalDeviceProp.deviceID);
+					cvkRendererInternalPrintPhysicalDevice(&physicalDeviceProp, i, "\t  ");
 
 					// enumerate device layers
 					vkEnumerateDeviceLayerProperties(physicalDeviceList[i], &nLayer, NULL);
 					if (nLayer)
 					{
-						printf("\t\t nLayer = %u: { \"layerName\" (specVersion.implementationVersion) \"description\" } \n", nLayer);
-
 						// iterate through layers and enumerate extensions
 						layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
 						vkEnumerateDeviceLayerProperties(physicalDeviceList[i], &nLayer, layerProp);
+						printf("\t\t nLayer = %u: \n", nLayer);
 						for (j = 0; j < nLayer; ++j)
 						{
-							printf("\t\t layerProp[%u] = { \"%s\" (%u.%u): \"%s\" } \n", j,
-								layerProp[j].layerName,
-								layerProp[j].specVersion, layerProp[j].implementationVersion,
-								layerProp[j].description);
+							cvkRendererInternalPrintLayer(layerProp + j, j, "\t\t  ");
 
 							// enumerate extensions for each layer
 							vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], layerProp[j].layerName, &nExtension, NULL);
 							if (nExtension)
 							{
-								printf("\t\t\t nExtension = %u: { \"extensionName\" (specVersion) } \n", nExtension);
-
 								// iterate through extensions
 								extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
 								vkEnumerateDeviceExtensionProperties(physicalDeviceList[i], layerProp[j].layerName, &nExtension, extensionProp);
+								printf("\t\t\t nExtension = %u: \n", nExtension);
 								for (k = 0; k < nExtension; ++k)
 								{
-									printf("\t\t\t extensionProp[%u] = { \"%s\" (%u) } \n", k,
-										extensionProp[k].extensionName, extensionProp[k].specVersion);
+									cvkRendererInternalPrintExtension(extensionProp + k, k, "\t\t\t  ");
 								}
 
 								// release extension list
@@ -268,20 +357,13 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 					vkGetPhysicalDeviceQueueFamilyProperties(physicalDeviceList[i], &nQueueFamily, NULL);
 					if (nQueueFamily)
 					{
-						printf("\t\t nQueueFamily = %u: { [flags] (count) } \n", nQueueFamily);
-
 						// allocate and query queue family properties
 						queueFamilyProp = (VkQueueFamilyProperties*)malloc(nQueueFamily * sizeof(VkQueueFamilyProperties));
 						vkGetPhysicalDeviceQueueFamilyProperties(physicalDeviceList[i], &nQueueFamily, queueFamilyProp);
+						printf("\t\t nQueueFamily = %u: { [flags] (count) } \n", nQueueFamily);
 						for (j = 0; j < nQueueFamily; ++j)
 						{
-							printf("\t\t queueFamilyProp[%u] = { %s%s%s%s%s (%u) } \n", j,
-								(queueFamilyProp[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) ? "[graphics]" : "",
-								(queueFamilyProp[j].queueFlags & VK_QUEUE_COMPUTE_BIT) ? "[compute]" : "",
-								(queueFamilyProp[j].queueFlags & VK_QUEUE_TRANSFER_BIT) ? "[transfer]" : "",
-								(queueFamilyProp[j].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) ? "[sparsebind]" : "",
-								(queueFamilyProp[j].queueFlags & VK_QUEUE_PROTECTED_BIT) ? "[protected]" : "",
-								queueFamilyProp[j].queueCount);
+							cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, j, "\t\t  ");
 						}
 
 						// release queue family list
@@ -292,19 +374,33 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 
 				// select physical device and properties
 				physicalDevice = physicalDeviceList[0];
-				vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeat);
+
+				// get features of device
+				vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatReq);
+
+				// specify device features to be enabled and disabled
+				physicalDeviceFeatReq.geometryShader = VK_TRUE;
+				physicalDeviceFeatReq.tessellationShader = VK_TRUE;
+				physicalDeviceFeatReq.multiDrawIndirect = physicalDeviceFeat.multiDrawIndirect;
+				//physicalDeviceFeatReq.multiViewport = physicalDeviceFeat.multiViewport;
+
+				// get memory properties of device
 				vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemProp);
+				printf("\t nMemoryType = %u: { [flags] (heap index) } \n", physicalDeviceMemProp.memoryTypeCount);
+				for (i = 0; i < physicalDeviceMemProp.memoryTypeCount; ++i)
+				{
+					cvkRendererInternalPrintMemoryType(physicalDeviceMemProp.memoryTypes + i, i, "\t  ");
+				}
+				printf("\t nMemoryHeap = %u: { [flags] (device size) } \n", physicalDeviceMemProp.memoryHeapCount);
+				for (i = 0; i < physicalDeviceMemProp.memoryHeapCount; ++i)
+				{
+					cvkRendererInternalPrintMemoryHeap(physicalDeviceMemProp.memoryHeaps + i, i, "\t  ");
+				}
 
 				// release device list
 				free(physicalDeviceList);
 				physicalDeviceList = NULL;
 			}
-
-			// specify device features required given some from physical device's features
-			physicalDeviceFeatReq.multiDrawIndirect = physicalDeviceFeat.multiDrawIndirect;
-			physicalDeviceFeatReq.multiViewport = physicalDeviceFeat.multiViewport;
-			physicalDeviceFeatReq.geometryShader = VK_TRUE;
-			physicalDeviceFeatReq.tessellationShader = VK_TRUE;
 
 			// create logical device
 			vkCreateDevice(physicalDevice, logicalDeviceInfoPtr, logicalDeviceAllocPtr, &logicalDevice);
@@ -317,7 +413,7 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			}
 			else
 			{
-				printf(" Logical device creation failed. \n");
+				printf(" Vulkan logical device creation failed. \n");
 				vkDestroyInstance(inst, instAllocPtr);
 				inst = NULL;
 			}
@@ -366,6 +462,7 @@ int cvkRendererRelease(cvkRenderer* const renderer)
 		VkAllocationCallbacks const* instAlloc = NULL;// (VkAllocationCallbacks*)renderer->func + cvkRendererData_instance;
 
 		// destroy data
+		vkDeviceWaitIdle(logicalDevice);
 		vkDestroyDevice(logicalDevice, logicalDeviceAlloc);
 		vkDestroyInstance(inst, instAlloc);
 
