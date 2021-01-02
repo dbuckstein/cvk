@@ -103,47 +103,28 @@ inline int cvk_strfind_pl(kstr const key, kstr const* arr, ui32 const len)
 // cvk_strfind_store
 //	Find a string in provided menus, storing in final list if found; returns 
 //	non-negative if found.
-inline int cvk_strfind_store(kstr const key, ui32* const count_inout, kstr* arr_out, kstr const* arr_request, kstr const* arr_require, ui32 const count_request, ui32 const count_require)
+inline int cvk_strfind_store(kstr const key, ui32* const count_inout, kstr* arr_out, kstr const* arr_request, ui32 const count_request)
 {
-	ui32 count = *count_inout;
-	i32 n = cvk_strfind_pl(key, arr_out, count);
+	i32 n = cvk_strfind_pl(key, arr_out, *count_inout);
 	if (n < 0)
 	{
 		// search for name in requested list, add to final if found
-		n = cvk_strfind_pl(key, arr_request, count_request);
-		if (n >= 0)
-			arr_out[count++] = arr_request[n];
-
-		// search required list
-		else
-			n = cvk_strfind_pl(key, arr_require, count_require);
-
-		// reassign count
-		*count_inout = count;
+		if ((n = cvk_strfind_pl(key, arr_request, count_request)) >= 0)
+			arr_out[(*count_inout)++] = arr_request[n];
 	}
 	return n;
 }
 
-
-//-----------------------------------------------------------------------------
-
-// cvkRendererData_vk
-//	Internal data/handle indices for renderer instance.
-enum cvkRendererData_vk
+// cvk_strfind_store_list
+//	Copy list of strings to another if not already contained.
+inline int cvk_strfind_store_list(ui32* const count_inout, kstr* arr_out, kstr const* arr_request, ui32 const count_request)
 {
-	cvkRendererData_instance,		// instance
-	cvkRendererData_logicalDevice,	// logical device
-
-	cvkRendererData_count			// maximum number of renderer handles
-};
-
-// cvkRendererData
-//	Internal data not involved with renderer.
-enum cvkRendererData
-{
-	cvkRendererData_allocation = cvkRendererData_count,	// global memory management
-	cvkRendererData_logicalDevice_queuePriority,		// priority flags for logical device
-};
+	ui32 i;
+	for (i = 0; i < count_request; ++i)
+		if (cvk_strfind_pl(arr_request[i], arr_out, *count_inout) < 0)
+			arr_out[(*count_inout)++] = arr_request[i];
+	return i;
+}
 
 
 //-----------------------------------------------------------------------------
@@ -252,19 +233,569 @@ inline int cvkRendererInternalPrintMemoryHeap(VkMemoryHeap const* const memoryHe
 
 //-----------------------------------------------------------------------------
 
+int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
+	VkInstance* const instPtr, VkDevice* const logicalDevicePtr, VkSurfaceKHR* const presSurfacePtr,
+	f32** const logicalDeviceQueuePriorityPtr)
+{
+	int n = -1;
+	ui32 i = 0, j = 0, k = 0;
+	kstr name = NULL;
+	kstr const pf1 = "\t  ", pf1s = "\t->", pf2 = "\t\t  ", pf2s = "\t\t->", pf3 = "\t\t\t  ", pf3s = "\t\t\t->";
+
+
+	//---------------------------------------------------------------------
+	// instance data
+
+	// instance handle
+	VkInstance inst = NULL;
+	// data for instance, layers and extensions
+	ui32 instVersion = 0, nLayer = 0, nExtension = 0;
+	// array of layer info
+	VkLayerProperties* layerProp = NULL;
+	// array of extension info for each layer
+	VkExtensionProperties* extensionProp = NULL;
+
+	// layers to be searched and enabled for instance
+	kstr const layerInfo_inst[] = {
+#ifdef _DEBUG
+		"VK_LAYER_KHRONOS_validation",
+		"VK_LAYER_LUNARG_api_dump",
+		"VK_LAYER_LUNARG_standard_validation",
+		//"VK_LAYER_LUNARG_monitor",
+		//"VK_LAYER_LUNARG_object_tracker",
+#endif	// _DEBUG
+		NULL
+	};
+	// extensions to be searched and enabled for instance
+	kstr const extInfo_inst[] = {
+#ifdef _DEBUG
+		"VK_EXT_debug_report",
+		"VK_EXT_debug_utils",
+		"VK_EXT_validation_features",
+#endif	// _DEBUG
+		NULL
+	};
+	// required instance layers
+	kstr const layerInfo_inst_req[] = {
+		NULL
+	};
+	// required instance extensions
+	kstr const extInfo_inst_req[] = {
+		VK_KHR_SURFACE_EXTENSION_NAME,
+#ifdef _WIN32
+		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#else	// !_WIN32
+#endif	// _WIN32
+		NULL
+	};
+	// number of layers in original array
+	ui32 const layerInfoLen_inst = cvk_arrlen_pl(layerInfo_inst, cvk_arrlen(layerInfo_inst));
+	// number of extensions in original array
+	ui32 const extInfoLen_inst = cvk_arrlen_pl(extInfo_inst, cvk_arrlen(extInfo_inst));
+	// number of required instance layers
+	ui32 const layerInfoLen_inst_req = cvk_arrlen_pl(layerInfo_inst_req, cvk_arrlen(layerInfo_inst_req));
+	// number of required instance extensions
+	ui32 const extInfoLen_inst_req = cvk_arrlen_pl(extInfo_inst_req, cvk_arrlen(extInfo_inst_req));
+	// final layers to be used with instance
+	kstr layerInfoFinal_inst[cvk_arrlen(layerInfo_inst) + cvk_arrlen(layerInfo_inst_req)] = { 0 };
+	// final extensions to be used with instance
+	kstr extInfoFinal_inst[cvk_arrlen(extInfo_inst) + cvk_arrlen(extInfo_inst_req)] = { 0 };
+	// maximum final layers
+	ui32 const layerInfoLenFinal_inst = cvk_arrlen(layerInfoFinal_inst);
+	// maximum final extensions
+	ui32 const extInfoLenFinal_inst = cvk_arrlen(extInfoFinal_inst);
+
+	// application info for instance
+	VkApplicationInfo const appInfo = {
+		VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL,
+		"cvkTest", VK_MAKE_VERSION(0, 0, 1), "cvk", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_0,
+	};
+
+	// instance initialization info
+	//	-> need to update layer and extension counts
+	VkInstanceCreateInfo instInfo = {
+		VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &appInfo,
+		cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst), layerInfoFinal_inst,
+		cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst), extInfoFinal_inst,
+	};
+
+
+	//---------------------------------------------------------------------
+	// logical device data
+
+	// info for physical devices
+	ui32 nPhysicalDevice = 0, nQueueFamily = 0;
+	// physical device used to create logical device
+	VkPhysicalDevice physicalDevice = NULL;
+	// array of physical device descriptors
+	VkPhysicalDevice* physicalDeviceList = NULL;
+	// properties for each physical device
+	VkPhysicalDeviceProperties physicalDeviceProp = { 0 };
+	// device features (available and required for instance)
+	VkPhysicalDeviceFeatures physicalDeviceFeat = { 0 }, physicalDeviceFeatReq = { 0 };
+	// device memory properties
+	VkPhysicalDeviceMemoryProperties physicalDeviceMemProp = { 0 };
+	// device queue family properties
+	VkQueueFamilyProperties* queueFamilyProp = NULL;
+
+	// layers to be searched and enabled for device
+	kstr const layerInfo_device[] = {
+#ifdef _DEBUG
+		"VK_LAYER_KHRONOS_validation",
+		"VK_LAYER_LUNARG_api_dump",
+		"VK_LAYER_LUNARG_standard_validation",
+#endif	// _DEBUG
+		NULL
+	};
+	// extensions to be searched and enabled for device
+	kstr const extInfo_device[] = {
+#ifdef _DEBUG
+		"VK_EXT_validation_cache",
+		"VK_EXT_debug_marker",
+		"VK_EXT_tooling_info",
+#endif	// _DEBUG
+		NULL
+	};
+	// required device layers
+	kstr const layerInfo_device_req[] = {
+		NULL
+	};
+	// required device extensions
+	kstr const extInfo_device_req[] = {
+		NULL
+	};
+	// number of layers in original array
+	ui32 const layerInfoLen_device = cvk_arrlen_pl(layerInfo_device, cvk_arrlen(layerInfo_device));
+	// number of extensions in original array
+	ui32 const extInfoLen_device = cvk_arrlen_pl(extInfo_device, cvk_arrlen(extInfo_device));
+	// number of required device layers
+	ui32 const layerInfoLen_device_req = cvk_arrlen_pl(layerInfo_device_req, cvk_arrlen(layerInfo_device_req));
+	// number of required device extensions
+	ui32 const extInfoLen_device_req = cvk_arrlen_pl(extInfo_device_req, cvk_arrlen(extInfo_device_req));
+	// final layers to be used with device
+	kstr layerInfoFinal_device[cvk_arrlen(layerInfo_device) + cvk_arrlen(layerInfo_device_req)] = { 0 };
+	// final extensions to be used with device
+	kstr extInfoFinal_device[cvk_arrlen(extInfo_device) + cvk_arrlen(extInfo_device_req)] = { 0 };
+	// maximum final layers
+	ui32 const layerInfoLenFinal_device = cvk_arrlen(layerInfoFinal_device);
+	// maximum final extensions
+	ui32 const extInfoLenFinal_device = cvk_arrlen(extInfoFinal_device);
+
+	// physical device to use for graphics
+	i32 physicalDeviceIndex = -1;
+	// queue family index to use for graphics and presentation
+	i32 queueFamilyIndex = -1;
+	// queue count in selected family
+	ui32 queueCount = 0;
+
+	// queue creation info for logical device
+	//	-> need to update queue family index, count and priorities
+	VkDeviceQueueCreateInfo queueInfo = {
+		VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL, 0,
+		queueFamilyIndex, queueCount, NULL,
+	};
+
+	// logical device creation info
+	//	-> need to update layer and extension counts
+	VkDeviceCreateInfo logicalDeviceInfo = {
+		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, NULL, 0,
+		1, &queueInfo,
+		cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device), layerInfoFinal_device,
+		cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device), extInfoFinal_device,
+		&physicalDeviceFeatReq,
+	};
+
+
+	//---------------------------------------------------------------------
+	// presentation surface data
+
+#ifdef _WIN32
+	// presentation surface creation info for Windows
+	//	-> need to update window handle
+	VkWin32SurfaceCreateInfoKHR presSurfaceInfo = {
+		VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR, NULL, 0,
+		GetModuleHandle(NULL), NULL,
+	};
+#else	// !_WIN32
+#endif	// _WIN32
+
+
+	//---------------------------------------------------------------------
+
+	// instance setup
+	printf(" Vulkan instance... \n");
+
+	// enumerate instance version
+	vkEnumerateInstanceVersion(&instVersion);
+	printf("\t instVer = %u.%u.%u \n",
+		VK_VERSION_MAJOR(instVersion), VK_VERSION_MINOR(instVersion), VK_VERSION_PATCH(instVersion));
+
+	// enumerate instance layers
+	vkEnumerateInstanceLayerProperties(&nLayer, NULL);
+	if (nLayer)
+	{
+		// iterate through layers and enumerate extensions
+		layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
+		vkEnumerateInstanceLayerProperties(&nLayer, layerProp);
+		printf("\t nLayer = %u: { \"layerName\" (specVer; implVer) \"description\" } \n", nLayer);
+		for (i = 0; i < nLayer; ++i)
+		{
+			// search and add layer from requested list
+			name = layerProp[i].layerName;
+			n = cvk_strfind_store(name, &instInfo.enabledLayerCount,
+				layerInfoFinal_inst, layerInfo_inst, layerInfoLen_inst);
+
+			// print layer info, indicating whether it is requested
+			cvkRendererInternalPrintLayer(layerProp + i, i, (n >= 0 ? pf1s : pf1));
+
+			// enumerate extensions for each layer
+			vkEnumerateInstanceExtensionProperties(name, &nExtension, NULL);
+			if (nExtension)
+			{
+				// iterate through extensions
+				extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
+				vkEnumerateInstanceExtensionProperties(name, &nExtension, extensionProp);
+				printf("\t\t nExtension = %u: { \"extensionName\" (specVer) } \n", nExtension);
+				for (j = 0; j < nExtension; ++j)
+				{
+					// search extension
+					name = extensionProp[j].extensionName;
+					n = cvk_strfind_store(name, &instInfo.enabledExtensionCount,
+						extInfoFinal_inst, extInfo_inst, extInfoLen_inst);
+
+					// print extension info, indicating whether it is requested
+					cvkRendererInternalPrintExtension(extensionProp + j, j, (n >= 0 ? pf2s : pf2));
+				}
+
+				// release extension list
+				free(extensionProp);
+				extensionProp = NULL;
+			}
+		}
+
+		// release layer list
+		free(layerProp);
+		layerProp = NULL;
+	}
+
+	// add remaining instance layers and extensions
+	cvk_strfind_store_list(&instInfo.enabledLayerCount,
+		layerInfoFinal_inst, layerInfo_inst_req, layerInfoLen_inst_req);
+	cvk_strfind_store_list(&instInfo.enabledExtensionCount,
+		extInfoFinal_inst, extInfo_inst_req, extInfoLen_inst_req);
+
+	// confirm counts are equal
+	n = (instInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst));
+	assert(n);
+	n = (instInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst));
+	assert(n);
+
+	// create instance
+	if (vkCreateInstance(&instInfo, alloc, instPtr) == VK_SUCCESS)
+	{
+		printf(" Vulkan instance created. \n");
+
+		// set up logical device
+		printf(" Vulkan logical device... \n");
+
+		// retrieve devices
+		inst = *instPtr;
+		vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, NULL);
+		if (nPhysicalDevice)
+		{
+			// alloc device info
+			physicalDeviceList = (VkPhysicalDevice*)malloc(nLayer * sizeof(VkPhysicalDevice));
+			vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, physicalDeviceList);
+			printf("\t nPhysicalDevice = %u: { \"name\" [type] (apiVer; driverVer; vendorID; deviceID) } \n", nPhysicalDevice);
+			for (i = 0; i < nPhysicalDevice; ++i)
+			{
+				// query device properties
+				vkGetPhysicalDeviceProperties(physicalDeviceList[i], &physicalDeviceProp);
+
+				// save index of capable device
+				n = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+				if (physicalDeviceProp.deviceType == n)
+					cvkRendererInternalPrintPhysicalDevice(&physicalDeviceProp, (physicalDeviceIndex = i), pf1s);
+				else
+					cvkRendererInternalPrintPhysicalDevice(&physicalDeviceProp, i, pf1);
+			}
+
+			// select physical device and properties
+			if (physicalDeviceIndex >= 0)
+			{
+				physicalDevice = physicalDeviceList[physicalDeviceIndex];
+				vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProp);
+			}
+
+			// release device list
+			free(physicalDeviceList);
+			physicalDeviceList = NULL;
+		}
+
+		// set up logical device from selected physical device
+		if (physicalDevice)
+		{
+			// enumerate device layers
+			vkEnumerateDeviceLayerProperties(physicalDevice, &nLayer, NULL);
+			if (nLayer)
+			{
+				// iterate through layers and enumerate extensions
+				layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
+				vkEnumerateDeviceLayerProperties(physicalDevice, &nLayer, layerProp);
+				printf("\t\t nLayer = %u: \n", nLayer);
+				for (j = 0; j < nLayer; ++j)
+				{
+					// search layer
+					name = layerProp[j].layerName;
+					n = cvk_strfind_store(name, &logicalDeviceInfo.enabledLayerCount,
+						layerInfoFinal_device, layerInfo_device, layerInfoLen_device);
+
+					// print layer info
+					cvkRendererInternalPrintLayer(layerProp + j, j, (n >= 0 ? pf2s : pf2));
+
+					// enumerate extensions for each layer
+					vkEnumerateDeviceExtensionProperties(physicalDevice, name, &nExtension, NULL);
+					if (nExtension)
+					{
+						// iterate through extensions
+						extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
+						vkEnumerateDeviceExtensionProperties(physicalDevice, name, &nExtension, extensionProp);
+						printf("\t\t\t nExtension = %u: \n", nExtension);
+						for (k = 0; k < nExtension; ++k)
+						{
+							// search extension
+							name = extensionProp[k].extensionName;
+							n = cvk_strfind_store(name, &logicalDeviceInfo.enabledExtensionCount,
+								extInfoFinal_device, extInfo_device, extInfoLen_device);
+
+							// print extension info
+							cvkRendererInternalPrintExtension(extensionProp + k, k, (n >= 0 ? pf3s : pf3));
+						}
+
+						// release extension list
+						free(extensionProp);
+						extensionProp = NULL;
+					}
+				}
+
+				// release layer list
+				free(layerProp);
+				layerProp = NULL;
+			}
+
+			// set up queue family info
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamily, NULL);
+			if (nQueueFamily)
+			{
+				// allocate and enumerate queue family properties
+				queueFamilyProp = (VkQueueFamilyProperties*)malloc(nQueueFamily * sizeof(VkQueueFamilyProperties));
+				vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamily, queueFamilyProp);
+				printf("\t\t nQueueFamily = %u: { [flags] (count; timestamp valid bits; min image transfer gran) } \n", nQueueFamily);
+				for (j = 0; j < nQueueFamily; ++j)
+				{
+					// save family index if it meets the requirements
+					// must also support graphics functionality and presentation
+					n = (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT);
+					if (((queueFamilyProp[j].queueFlags & n) == n) &&
+#ifdef _WIN32
+						vkGetPhysicalDeviceWin32PresentationSupportKHR(physicalDevice, j)
+#else	// !_WIN32
+#endif	// _WIN32
+						)
+						cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, (queueFamilyIndex = j), pf2s);
+					else
+						cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, j, pf2);
+				}
+
+				// set queue properties
+				if (queueFamilyIndex >= 0)
+				{
+					// update queue info for device initialization
+					queueInfo.queueFamilyIndex = queueFamilyIndex;
+					queueInfo.queueCount = queueFamilyProp[queueFamilyIndex].queueCount;
+					n = (queueInfo.queueCount * sizeof(f32));
+					queueInfo.pQueuePriorities = *logicalDeviceQueuePriorityPtr = (f32*)memset(malloc(n), 0, n);
+				}
+
+				// release queue family list
+				free(queueFamilyProp);
+				queueFamilyProp = NULL;
+			}
+
+			// get features of device
+			vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeat);
+
+			// specify device features to be enabled and disabled
+			physicalDeviceFeatReq.geometryShader = VK_TRUE;
+			physicalDeviceFeatReq.tessellationShader = VK_TRUE;
+			physicalDeviceFeatReq.multiDrawIndirect = physicalDeviceFeat.multiDrawIndirect;
+			//physicalDeviceFeatReq.multiViewport = physicalDeviceFeat.multiViewport;
+
+			// get memory properties of device
+			vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemProp);
+			printf("\t nMemoryType = %u: { [flags] (heap index) } \n", physicalDeviceMemProp.memoryTypeCount);
+			for (i = 0; i < physicalDeviceMemProp.memoryTypeCount; ++i)
+			{
+				cvkRendererInternalPrintMemoryType(physicalDeviceMemProp.memoryTypes + i, i, pf1);
+			}
+			printf("\t nMemoryHeap = %u: { [flags] (device size) } \n", physicalDeviceMemProp.memoryHeapCount);
+			for (i = 0; i < physicalDeviceMemProp.memoryHeapCount; ++i)
+			{
+				cvkRendererInternalPrintMemoryHeap(physicalDeviceMemProp.memoryHeaps + i, i, pf1);
+			}
+
+			// add remaining device layers and extensions
+			cvk_strfind_store_list(&logicalDeviceInfo.enabledLayerCount,
+				layerInfoFinal_device, layerInfo_device_req, layerInfoLen_device_req);
+			cvk_strfind_store_list(&logicalDeviceInfo.enabledExtensionCount,
+				extInfoFinal_device, extInfo_device_req, extInfoLen_device_req);
+
+			// confirm counts are equal
+			n = (logicalDeviceInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device));
+			assert(n);
+			n = (logicalDeviceInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device));
+			assert(n);
+
+			// create logical device
+			if (vkCreateDevice(physicalDevice, &logicalDeviceInfo, alloc, logicalDevicePtr) == VK_SUCCESS)
+			{
+				printf(" Vulkan logical device created. \n");
+
+				// set up presentation surface
+				printf(" Vulkan presentation surface... \n");
+
+				// create window
+				presSurfaceInfo.hwnd = CreateWindowEx(0, 0, TEXT("cvkRendererWindow"), 0, 0, 0, 1024, 768, NULL, NULL, presSurfaceInfo.hinstance, NULL);
+				if (presSurfaceInfo.hwnd)
+				{
+					// show window
+					ShowWindow(presSurfaceInfo.hwnd, SW_SHOW);
+					UpdateWindow(presSurfaceInfo.hwnd);
+
+					// create presentation surface
+					if (
+#ifdef _WIN32
+						vkCreateWin32SurfaceKHR(inst, &presSurfaceInfo, alloc, presSurfacePtr)
+#else	// !_WIN32
+#endif	// _WIN32
+						)
+					{
+						printf(" Vulkan presentation surface created. \n");
+
+						// done
+						return 0;
+					}
+				}
+				
+				// surface failure
+				printf(" Vulkan presentation surface creation failed. \n");
+				return -3;
+			}
+		}
+
+		// device failure
+		printf(" Vulkan logical device creation failed. \n");
+		return -2;
+	}
+
+	// instance failure
+	printf(" Vulkan instance creation failed. \n");
+	return -1;
+}
+
+int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
+	VkInstance const inst, VkDevice const logicalDevice, VkSurfaceKHR const presSurface,
+	f32* const logicalDeviceQueuePriority)
+{
+	// destroy data in reverse order once logical device finishes work
+	int result = (vkDeviceWaitIdle(logicalDevice) == VK_SUCCESS);
+
+	// presentation surface
+	vkDestroySurfaceKHR(inst, presSurface, alloc);
+
+	// logical device
+	vkDestroyDevice(logicalDevice, alloc);
+
+	// instance
+	vkDestroyInstance(inst, alloc);
+
+	// helpers
+	free(logicalDeviceQueuePriority);
+
+	// done
+	result = -(!result);
+	return result;
+}
+
+int cvkRendererInternalAllocSetup(VkAllocationCallbacks** const allocPtr)
+{
+	int result = -1;
+	VkAllocationCallbacks* alloc = NULL;
+
+	// create instance and data
+	//alloc = (VkAllocationCallbacks*)malloc(sizeof(VkAllocationCallbacks));
+	if (alloc)
+	{
+		//alloc->pUserData = malloc(0);
+
+		// success
+		result = 0;
+	}
+
+	// done
+	*allocPtr = alloc;
+	return result;
+}
+
+int cvkRendererInternalAllocCleanup(VkAllocationCallbacks* const alloc)
+{
+	int result = -1;
+
+	// delete data and instance
+	if (alloc)
+	{
+		free(alloc->pUserData);
+		free(alloc);
+
+		// success
+		result = 0;
+	}
+
+	// done
+	return result;
+}
+
+
+//-----------------------------------------------------------------------------
+
+// cvkRendererData_vk
+//	Internal data/handle indices for renderer instance.
+enum cvkRendererData_vk
+{
+	cvkRendererData_instance,		// instance
+	cvkRendererData_logicalDevice,	// logical device
+	cvkRendererData_presSurface,	// presentation surface
+
+	// maximum number of renderer handles, start counting non-handle data here
+	cvkRendererData_count
+};
+
+// cvkRendererData
+//	Internal data not involved with renderer.
+enum cvkRendererData
+{
+	cvkRendererData_allocation = cvkRendererData_count,	// global memory management
+	cvkRendererData_logicalDevice_queuePriority,		// priority flags for logical device
+};
+
+
+//-----------------------------------------------------------------------------
+
 int cvkRendererCreate(cvkRenderer* const renderer)
 {
 	if (renderer && !renderer->init)
 	{
-		int result = -2;
-		int n = -1;
-		ui32 i = 0, j = 0, k = 0;
-		kstr name = NULL;
-		kstr const pf1 = "\t  ", pf1s = "\t->", pf2 = "\t\t  ", pf2s = "\t\t->", pf3 = "\t\t\t  ", pf3s = "\t\t\t->";
-
-
-		//---------------------------------------------------------------------
-		// persistent data
+		int result = 0;
 
 		// instance
 		VkInstance inst = NULL;
@@ -272,458 +803,25 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		// logical device
 		VkDevice logicalDevice = NULL;
 
+		// surface
+		VkSurfaceKHR presSurface = NULL;
+
 		// global memory management
 		VkAllocationCallbacks* alloc = NULL;
 
 		// logical device queue priority
 		f32* logicalDeviceQueuePriority = NULL;
 
-
-		//---------------------------------------------------------------------
-		// instance data
-
-		// data for instance, layers and extensions
-		ui32 instVersion = 0, nLayer = 0, nExtension = 0;
-		// array of layer info
-		VkLayerProperties* layerProp = NULL;
-		// array of extension info for each layer
-		VkExtensionProperties* extensionProp = NULL;
-
-		// layers to be searched and enabled for instance
-		kstr const layerInfo_inst[] = {
-#ifdef _DEBUG
-			"VK_LAYER_KHRONOS_validation",
-			"VK_LAYER_LUNARG_api_dump",
-			"VK_LAYER_LUNARG_standard_validation",
-			//"VK_LAYER_LUNARG_monitor",
-			//"VK_LAYER_LUNARG_object_tracker",
-#else	// !_DEBUG
-			NULL
-#endif	// _DEBUG
-		};
-		// extensions to be searched and enabled for instance
-		kstr const extInfo_inst[] = {
-#ifdef _DEBUG
-			"VK_EXT_debug_report",
-			"VK_EXT_debug_utils",
-			"VK_EXT_validation_features",
-#else	// !_DEBUG
-			NULL
-#endif	// _DEBUG
-		};
-		// required layers
-		kstr const layerInfo_inst_req[] = {
-			NULL
-		};
-		// required extensions
-		kstr const extInfo_inst_req[] = {
-			VK_KHR_SURFACE_EXTENSION_NAME,
-#ifdef _WIN32
-			VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#else	// !_WIN32
-#endif	// _WIN32
-		};
-		// number of layers in original array
-		ui32 const layerInfoLen_inst = cvk_arrlen(layerInfo_inst);
-		// number of required layers in original array
-		ui32 const layerInfoLen_inst_req = cvk_arrlen(layerInfo_inst_req);
-		// number of extensions in original array
-		ui32 const extInfoLen_inst = cvk_arrlen(extInfo_inst);
-		// number of required extensions in original array
-		ui32 const extInfoLen_inst_req = cvk_arrlen(extInfo_inst_req);
-		// final layers to be used with instance
-		kstr layerInfoFinal_inst[cvk_arrlen(layerInfo_inst) + cvk_arrlen(layerInfo_inst_req)] = { 0 };
-		// final extensions to be used with instance
-		kstr extInfoFinal_inst[cvk_arrlen(extInfo_inst) + cvk_arrlen(extInfo_inst_req)] = { 0 };
-		// maximum final layers
-		ui32 const layerInfoLenFinal_inst = cvk_arrlen(layerInfoFinal_inst);
-		// maximum final extensions
-		ui32 const extInfoLenFinal_inst = cvk_arrlen(extInfoFinal_inst);
-
-		// application info for instance
-		VkApplicationInfo const appInfo = {
-			VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL,
-			"cvkTest", VK_MAKE_VERSION(0, 0, 1), "cvk", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_0,
-		};
-
-		// instance initialization info
-		VkInstanceCreateInfo instInfo = {
-			VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &appInfo,
-			cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst), layerInfoFinal_inst,
-			cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst), extInfoFinal_inst,
-		};
-
-
-		//---------------------------------------------------------------------
-		// device data
-
-		// info for physical devices
-		ui32 nPhysicalDevice = 0, nQueueFamily = 0;
-		// physical device used to create logical device
-		VkPhysicalDevice physicalDevice = NULL;
-		// array of physical device descriptors
-		VkPhysicalDevice* physicalDeviceList = NULL;
-		// properties for each physical device
-		VkPhysicalDeviceProperties physicalDeviceProp = { 0 };
-		// device features (available and required for instance)
-		VkPhysicalDeviceFeatures physicalDeviceFeat = { 0 }, physicalDeviceFeatReq = { 0 };
-		// device memory properties
-		VkPhysicalDeviceMemoryProperties physicalDeviceMemProp = { 0 };
-		// device queue family properties
-		VkQueueFamilyProperties* queueFamilyProp = NULL;
-
-		// layers to be searched and enabled for device
-		kstr const layerInfo_device[] = {
-#ifdef _DEBUG
-			"VK_LAYER_KHRONOS_validation",
-			"VK_LAYER_LUNARG_api_dump",
-			"VK_LAYER_LUNARG_standard_validation",
-#else	// !_DEBUG
-			NULL
-#endif	// _DEBUG
-		};
-		// extensions to be searched and enabled for device
-		kstr const extInfo_device[] = {
-#ifdef _DEBUG
-			"VK_EXT_validation_cache",
-			"VK_EXT_debug_marker",
-			"VK_EXT_tooling_info",
-#else	// !_DEBUG
-			NULL
-#endif	// _DEBUG
-		};
-		// required layers
-		kstr const layerInfo_device_req[] = {
-			NULL
-		};
-		// required extensions
-		kstr const extInfo_device_req[] = {
-			NULL
-		};
-		// number of layers in original array
-		ui32 const layerInfoLen_device = cvk_arrlen(layerInfo_device);
-		// number of required layers in original array
-		ui32 const layerInfoLen_device_req = cvk_arrlen(layerInfo_device_req);
-		// number of extensions in original array
-		ui32 const extInfoLen_device = cvk_arrlen(extInfo_device);
-		// number of required extensions in original array
-		ui32 const extInfoLen_device_req = cvk_arrlen(extInfo_device_req);
-		// final layers to be used with device
-		kstr layerInfoFinal_device[cvk_arrlen(layerInfo_device) + cvk_arrlen(layerInfo_device_req)] = { 0 };
-		// final extensions to be used with device
-		kstr extInfoFinal_device[cvk_arrlen(extInfo_device) + cvk_arrlen(extInfo_device_req)] = { 0 };
-		// maximum final layers
-		ui32 const layerInfoLenFinal_device = cvk_arrlen(layerInfoFinal_device);
-		// maximum final extensions
-		ui32 const extInfoLenFinal_device = cvk_arrlen(extInfoFinal_device);
-
-		// physical device to use for graphics
-		i32 physicalDeviceIndex = -1;
-		// queue family index to use for graphics and presentation
-		i32 queueFamilyIndex = -1;
-		// queue count in selected family
-		ui32 queueCount = 0;
-
-		// queue creation info for logical device
-		VkDeviceQueueCreateInfo queueInfo = {
-			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL, 0,
-			queueFamilyIndex, queueCount, NULL,
-		};
-
-		// logical device creation info
-		VkDeviceCreateInfo logicalDeviceInfo = {
-			VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, NULL, 0,
-			1, &queueInfo,
-			cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device), layerInfoFinal_device,
-			cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device), extInfoFinal_device,
-			&physicalDeviceFeatReq,
-		};
-
-
-		//---------------------------------------------------------------------
-		// initialize
-
 		// begin setup
 		printf("cvkRendererCreate \n");
 
 		// allocator setup
-		//alloc = (VkAllocationCallbacks*)malloc(sizeof(VkAllocationCallbacks));
-		//alloc->pUserData = malloc(0);
+		cvkRendererInternalAllocSetup(&alloc);
 
+		// internal create
+		result = cvkRendererInternalCreate(alloc, &inst, &logicalDevice, &presSurface, &logicalDeviceQueuePriority);
 
-		//---------------------------------------------------------------------
-
-		// instance setup
-		printf(" Vulkan instance... \n");
-
-		// enumerate instance version
-		vkEnumerateInstanceVersion(&instVersion);
-		printf("\t instVer = %u.%u.%u \n",
-			VK_VERSION_MAJOR(instVersion), VK_VERSION_MINOR(instVersion), VK_VERSION_PATCH(instVersion));
-
-		// enumerate instance layers
-		vkEnumerateInstanceLayerProperties(&nLayer, NULL);
-		if (nLayer)
-		{
-			// iterate through layers and enumerate extensions
-			layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
-			vkEnumerateInstanceLayerProperties(&nLayer, layerProp);
-			printf("\t nLayer = %u: { \"layerName\" (specVer; implVer) \"description\" } \n", nLayer);
-			for (i = 0; i < nLayer; ++i)
-			{
-				// search layer in final list, requested list and required list
-				name = layerProp[i].layerName;
-				n = cvk_strfind_store(name, &instInfo.enabledLayerCount, layerInfoFinal_inst,
-					layerInfo_inst, layerInfo_inst_req, layerInfoLen_inst, layerInfoLen_inst_req);
-
-				// print layer info, indicating whether it is requested
-				cvkRendererInternalPrintLayer(layerProp + i, i, (n >= 0 ? pf1s : pf1));
-
-				// enumerate extensions for each layer
-				vkEnumerateInstanceExtensionProperties(name, &nExtension, NULL);
-				if (nExtension)
-				{
-					// iterate through extensions
-					extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
-					vkEnumerateInstanceExtensionProperties(name, &nExtension, extensionProp);
-					printf("\t\t nExtension = %u: { \"extensionName\" (specVer) } \n", nExtension);
-					for (j = 0; j < nExtension; ++j)
-					{
-						// search extension
-						name = extensionProp[j].extensionName;
-						n = cvk_strfind_store(name, &instInfo.enabledExtensionCount, extInfoFinal_inst,
-							extInfo_inst, extInfo_inst_req, extInfoLen_inst, extInfoLen_inst_req);
-
-						// print extension info, indicating whether it is requested
-						cvkRendererInternalPrintExtension(extensionProp + j, j, (n >= 0 ? pf2s : pf2));
-					}
-
-					// release extension list
-					free(extensionProp);
-					extensionProp = NULL;
-				}
-			}
-
-			// release layer list
-			free(layerProp);
-			layerProp = NULL;
-		}
-
-		// add required layers and extensions
-		for (i = 0; i < layerInfoLen_inst_req; ++i)
-			if (layerInfo_inst_req[i] && layerInfo_inst_req[i][0])
-				layerInfoFinal_inst[instInfo.enabledLayerCount++] = layerInfo_inst_req[i];
-		for (i = 0; i < extInfoLen_inst_req; ++i)
-			if (extInfo_inst_req[i] && extInfo_inst_req[i][0])
-				extInfoFinal_inst[instInfo.enabledExtensionCount++] = extInfo_inst_req[i];
-
-		// confirm counts are equal
-		n = (instInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst));
-		assert(n);
-		n = (instInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst));
-		assert(n);
-
-		// create instance
-		vkCreateInstance(&instInfo, alloc, &inst);
-		if (inst)
-		{
-			printf(" Vulkan instance created. \n");
-
-			// set up logical device
-			printf(" Vulkan logical device... \n");
-
-			// set up devices
-			vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, NULL);
-			if (nPhysicalDevice)
-			{
-				// alloc device info
-				physicalDeviceList = (VkPhysicalDevice*)malloc(nLayer * sizeof(VkPhysicalDevice));
-				vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, physicalDeviceList);
-				printf("\t nPhysicalDevice = %u: { \"name\" [type] (apiVer; driverVer; vendorID; deviceID) } \n", nPhysicalDevice);
-				for (i = 0; i < nPhysicalDevice; ++i)
-				{
-					// query device properties
-					vkGetPhysicalDeviceProperties(physicalDeviceList[i], &physicalDeviceProp);
-
-					// save index of capable device
-					n = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-					if (physicalDeviceProp.deviceType == n)
-						cvkRendererInternalPrintPhysicalDevice(&physicalDeviceProp, (physicalDeviceIndex = i), pf1s);
-					else
-						cvkRendererInternalPrintPhysicalDevice(&physicalDeviceProp, i, pf1);
-				}
-
-				// select physical device and properties
-				if (physicalDeviceIndex >= 0)
-				{
-					physicalDevice = physicalDeviceList[physicalDeviceIndex];
-					vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProp);
-				}
-
-				// release device list
-				free(physicalDeviceList);
-				physicalDeviceList = NULL;
-			}
-
-			// set up logical device from selected physical device
-			if (physicalDevice)
-			{
-				// enumerate device layers
-				vkEnumerateDeviceLayerProperties(physicalDevice, &nLayer, NULL);
-				if (nLayer)
-				{
-					// iterate through layers and enumerate extensions
-					layerProp = (VkLayerProperties*)malloc(nLayer * sizeof(VkLayerProperties));
-					vkEnumerateDeviceLayerProperties(physicalDevice, &nLayer, layerProp);
-					printf("\t\t nLayer = %u: \n", nLayer);
-					for (j = 0; j < nLayer; ++j)
-					{
-						// search layer
-						name = layerProp[j].layerName;
-						n = cvk_strfind_store(name, &logicalDeviceInfo.enabledLayerCount, layerInfoFinal_device,
-							layerInfo_device, layerInfo_device_req, layerInfoLen_device, layerInfoLen_device_req);
-
-						// print layer info
-						cvkRendererInternalPrintLayer(layerProp + j, j, (n >= 0 ? pf2s : pf2));
-
-						// enumerate extensions for each layer
-						vkEnumerateDeviceExtensionProperties(physicalDevice, name, &nExtension, NULL);
-						if (nExtension)
-						{
-							// iterate through extensions
-							extensionProp = (VkExtensionProperties*)malloc(nExtension * sizeof(VkExtensionProperties));
-							vkEnumerateDeviceExtensionProperties(physicalDevice, name, &nExtension, extensionProp);
-							printf("\t\t\t nExtension = %u: \n", nExtension);
-							for (k = 0; k < nExtension; ++k)
-							{
-								// search extension
-								name = extensionProp[k].extensionName;
-								n = cvk_strfind_store(name, &logicalDeviceInfo.enabledExtensionCount, extInfoFinal_device,
-									extInfo_device, extInfo_device_req, extInfoLen_device, extInfoLen_device_req);
-
-								// print extension info
-								cvkRendererInternalPrintExtension(extensionProp + k, k, (n >= 0 ? pf3s : pf3));
-							}
-
-							// release extension list
-							free(extensionProp);
-							extensionProp = NULL;
-						}
-					}
-
-					// release layer list
-					free(layerProp);
-					layerProp = NULL;
-				}
-
-				// set up queue family info
-				vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamily, NULL);
-				if (nQueueFamily)
-				{
-					// allocate and enumerate queue family properties
-					queueFamilyProp = (VkQueueFamilyProperties*)malloc(nQueueFamily * sizeof(VkQueueFamilyProperties));
-					vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamily, queueFamilyProp);
-					printf("\t\t nQueueFamily = %u: { [flags] (count; timestamp valid bits; min image transfer gran) } \n", nQueueFamily);
-					for (j = 0; j < nQueueFamily; ++j)
-					{
-						// save family index if it meets the requirements
-						// must also support graphics functionality and presentation
-						n = (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT);
-						if (((queueFamilyProp[j].queueFlags & n) == n) &&
-#ifdef _WIN32
-							vkGetPhysicalDeviceWin32PresentationSupportKHR(physicalDevice, j)
-#else	// !_WIN32
-#endif	// _WIN32
-							)
-							cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, (queueFamilyIndex = j), pf2s);
-						else
-							cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, j, pf2);
-					}
-
-					// set queue properties
-					if (queueFamilyIndex >= 0)
-					{
-						// get queue family data
-						queueCount = queueFamilyProp[queueFamilyIndex].queueCount;
-						n = (queueCount * sizeof(f32));
-						logicalDeviceQueuePriority = (f32*)malloc(n);
-						memset(logicalDeviceQueuePriority, 0, n);
-
-						// update queue info for device initialization
-						queueInfo.queueFamilyIndex = queueFamilyIndex;
-						queueInfo.queueCount = queueCount;
-						queueInfo.pQueuePriorities = logicalDeviceQueuePriority;
-					}
-
-					// release queue family list
-					free(queueFamilyProp);
-					queueFamilyProp = NULL;
-				}
-
-				// get features of device
-				vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeat);
-
-				// specify device features to be enabled and disabled
-				physicalDeviceFeatReq.geometryShader = VK_TRUE;
-				physicalDeviceFeatReq.tessellationShader = VK_TRUE;
-				physicalDeviceFeatReq.multiDrawIndirect = physicalDeviceFeat.multiDrawIndirect;
-				//physicalDeviceFeatReq.multiViewport = physicalDeviceFeat.multiViewport;
-
-				// get memory properties of device
-				vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemProp);
-				printf("\t nMemoryType = %u: { [flags] (heap index) } \n", physicalDeviceMemProp.memoryTypeCount);
-				for (i = 0; i < physicalDeviceMemProp.memoryTypeCount; ++i)
-				{
-					cvkRendererInternalPrintMemoryType(physicalDeviceMemProp.memoryTypes + i, i, pf1);
-				}
-				printf("\t nMemoryHeap = %u: { [flags] (device size) } \n", physicalDeviceMemProp.memoryHeapCount);
-				for (i = 0; i < physicalDeviceMemProp.memoryHeapCount; ++i)
-				{
-					cvkRendererInternalPrintMemoryHeap(physicalDeviceMemProp.memoryHeaps + i, i, pf1);
-				}
-
-				// add required layers and extensions
-				for (i = 0; i < layerInfoLen_device_req; ++i)
-					if (layerInfo_device_req[i] && layerInfo_device_req[i][0])
-						layerInfoFinal_device[logicalDeviceInfo.enabledLayerCount++] = layerInfo_device_req[i];
-				for (i = 0; i < extInfoLen_device_req; ++i)
-					if (extInfo_device_req[i] && extInfo_device_req[i][0])
-						extInfoFinal_device[logicalDeviceInfo.enabledExtensionCount++] = extInfo_device_req[i];
-
-				// confirm counts are equal
-				n = (logicalDeviceInfo.enabledLayerCount == cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device));
-				assert(n);
-				n = (logicalDeviceInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device));
-				assert(n);
-
-				// create logical device
-				vkCreateDevice(physicalDevice, &logicalDeviceInfo, alloc, &logicalDevice);
-				if (logicalDevice)
-				{
-					printf(" Vulkan logical device created. \n");
-
-					// done
-					result = 0;
-				}
-			}
-
-			// device failure
-			if (result < 0)
-			{
-				printf(" Vulkan logical device creation failed. \n");
-				vkDestroyInstance(inst, alloc);
-				inst = NULL;
-			}
-		}
-		else
-		{
-			printf(" Vulkan instance creation failed. \n");
-		}
-
-
-		//---------------------------------------------------------------------
-
-		// done
+		// success
 		if (!result)
 		{
 			// raise init flag
@@ -732,12 +830,21 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			// set persistent renderer data
 			renderer->data[cvkRendererData_instance] = inst;
 			renderer->data[cvkRendererData_logicalDevice] = logicalDevice;
+			renderer->data[cvkRendererData_presSurface] = presSurface;
 
 			// set persistent non-renderer data
 			renderer->data[cvkRendererData_allocation] = alloc;
 			renderer->data[cvkRendererData_logicalDevice_queuePriority] = logicalDeviceQueuePriority;
+
+			// done
+			return result;
 		}
-		return result;
+
+		// failure
+		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, logicalDeviceQueuePriority);
+		cvkRendererInternalAllocCleanup(alloc);
+		memset(renderer->data, 0, sizeof(renderer->data));
+		return -2;
 	}
 	return -1;
 }
@@ -747,7 +854,7 @@ int cvkRendererRelease(cvkRenderer* const renderer)
 {
 	if (renderer && renderer->init)
 	{
-		int result = -2;
+		int result = 0;
 
 		// retrieve instance
 		VkInstance inst = (VkInstance)renderer->data[cvkRendererData_instance];
@@ -755,41 +862,39 @@ int cvkRendererRelease(cvkRenderer* const renderer)
 		// retrieve logical device
 		VkDevice logicalDevice = (VkDevice)renderer->data[cvkRendererData_logicalDevice];
 
+		// retrieve presentation surface
+		VkSurfaceKHR presSurface = (VkSurfaceKHR)renderer->data[cvkRendererData_presSurface];
+
 		// retrieve global memory management
 		VkAllocationCallbacks* alloc = (VkAllocationCallbacks*)renderer->data[cvkRendererData_allocation];
 
 		// retrieve logical device queue priority
 		f32* logicalDeviceQueuePriority = (f32*)renderer->data[cvkRendererData_logicalDevice_queuePriority];
 
-		// destroy data in reverse order
-		if (vkDeviceWaitIdle(logicalDevice) == VK_SUCCESS)
-		{
-			// device
-			vkDestroyDevice(logicalDevice, alloc);
+		// begin termination
+		printf("cvkRendererRelease \n");
 
-			// instance
-			vkDestroyInstance(inst, alloc);
-			
-			// done
-			result = 0;
-		}
+		// internal cleanup
+		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, logicalDeviceQueuePriority);
 
-		// done
+		// success
 		if (!result)
 		{
 			// other data deallocations
-			if (alloc)
-				free(alloc->pUserData);
-			free(alloc);
-			free(logicalDeviceQueuePriority);
+			cvkRendererInternalAllocCleanup(alloc);
 
 			// reset persistent data
 			memset(renderer->data, 0, sizeof(renderer->data));
 
 			// lower init flag
 			renderer->init = false;
+
+			// done
+			return result;
 		}
-		return result;
+
+		// failure
+		return -2;
 	}
 	return -1;
 }
@@ -801,8 +906,19 @@ int cvkRendererTest(cvkRenderer* const renderer)
 	{
 		int result = 0;
 
-		// done
-		return result;
+		// begin testing
+		printf("cvkRendererTest \n");
+
+		// success
+		if (!result)
+		{
+
+			// done
+			return result;
+		}
+
+		// failure
+		return -2;
 	}
 	return -1;
 }

@@ -45,7 +45,7 @@ extern "C" {
 typedef struct cvkRenderer
 {
 	bool init;		// Initialized flag.
-	ptr data[4];	// Internal data.
+	ptr data[5];	// Internal data.
 } cvkRenderer;
 
 
