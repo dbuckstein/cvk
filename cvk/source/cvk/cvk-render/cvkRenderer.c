@@ -233,6 +233,123 @@ inline int cvkRendererInternalPrintMemoryHeap(VkMemoryHeap const* const memoryHe
 
 //-----------------------------------------------------------------------------
 
+#ifdef _WIN32
+LRESULT CALLBACK cvkRendererInternalWindowEventProcess(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_NCCREATE:
+		break;
+
+	case WM_CREATE:
+		break;
+
+	case WM_CLOSE:
+		DestroyWindow(hWnd);
+		break;
+
+	case WM_DESTROY:
+		PostQuitMessage(0);
+		break;
+	}
+	return DefWindowProc(hWnd, message, wParam, lParam);
+}
+
+#define cvk_win_name TEXT("cvkRendererWindow")
+int cvkRendererInternalCreateWindowClassDefault(WNDCLASSEX* windowClassPtr, HINSTANCE const instHandle)
+{
+	// fill in properties
+	windowClassPtr->cbSize = sizeof(WNDCLASSEX);
+	windowClassPtr->style = (CS_HREDRAW | CS_VREDRAW | CS_OWNDC | CS_DBLCLKS);
+	windowClassPtr->lpfnWndProc = cvkRendererInternalWindowEventProcess;
+	windowClassPtr->cbClsExtra = 0;
+	windowClassPtr->cbWndExtra = sizeof(ptr);
+	windowClassPtr->hInstance = instHandle;
+	windowClassPtr->hIcon = LoadIcon(instHandle, IDI_WINLOGO);
+	windowClassPtr->hCursor = LoadCursor(NULL, IDC_ARROW);
+	windowClassPtr->hbrBackground = 0;
+	windowClassPtr->lpszMenuName = 0;
+	windowClassPtr->lpszClassName = cvk_win_name;
+	windowClassPtr->hIconSm = windowClassPtr->hIcon;
+
+	// register
+	if (RegisterClassEx(windowClassPtr))
+	{
+		// done
+		return 0;
+	}
+	return -1;
+}
+
+int cvkRendererInternalCreateWindowDefault(HWND* windowPtr)
+{
+	HWND wndHandle = NULL;
+	RECT displayArea = { 0 };
+	dword style = (WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VISIBLE | WS_POPUP), styleEx = (WS_EX_APPWINDOW);
+	ui16 const winWidth = 1024, winHeight = 768;
+
+	// create class if it doesn't exist
+	HINSTANCE const instHandle = GetModuleHandle(NULL);
+	WNDCLASSEX wndClass = { 0 };
+	if (!GetClassInfoEx(instHandle, cvk_win_name, &wndClass))
+		cvkRendererInternalCreateWindowClassDefault(&wndClass, instHandle);
+
+	// create window
+	displayArea.right = displayArea.left + winWidth;
+	displayArea.bottom = displayArea.top + winHeight;
+	styleEx |= WS_EX_WINDOWEDGE;
+	style |= WS_OVERLAPPEDWINDOW;
+	AdjustWindowRectEx(&displayArea, style, FALSE, styleEx);
+	wndHandle = CreateWindowEx(styleEx, cvk_win_name, cvk_win_name, style,
+		0, 0, (displayArea.right - displayArea.left), (displayArea.bottom - displayArea.top),
+		NULL, NULL, instHandle, NULL);
+	if (wndHandle)
+	{
+		ShowWindow(wndHandle, SW_SHOW);
+		UpdateWindow(wndHandle);
+
+		// done
+		*windowPtr = wndHandle;
+		return 0;
+	}
+	return -1;
+}
+
+int cvkRendererInternalWindowMainLoop()
+{
+	MSG message[1] = { 0 };
+	BOOL result;
+	while (result = GetMessage(message, NULL, 0, 0))
+	{
+		// message
+		if (result > 0)
+		{
+			TranslateMessage(message);
+			DispatchMessage(message);
+		}
+		// error
+		else if (result < 0)
+		{
+		}
+		// quit
+		else
+			break;
+	}
+
+	// unregister window class
+	if (UnregisterClass(cvk_win_name, GetModuleHandle(NULL)))
+	{
+		// done
+		return (int)message->wParam;
+	}
+	return -1;
+}
+#else	// !_WIN32
+#endif	// _WIN32
+
+
+//-----------------------------------------------------------------------------
+
 int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	VkInstance* const instPtr, VkDevice* const logicalDevicePtr, VkSurfaceKHR* const presSurfacePtr,
 	f32** const logicalDeviceQueuePriorityPtr)
@@ -665,20 +782,12 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 				printf(" Vulkan presentation surface... \n");
 
 				// create window
-				presSurfaceInfo.hwnd = CreateWindowEx(0, 0, TEXT("cvkRendererWindow"), 0, 0, 0, 1024, 768, NULL, NULL, presSurfaceInfo.hinstance, NULL);
+#ifdef _WIN32
+				cvkRendererInternalCreateWindowDefault(&presSurfaceInfo.hwnd);
 				if (presSurfaceInfo.hwnd)
 				{
-					// show window
-					ShowWindow(presSurfaceInfo.hwnd, SW_SHOW);
-					UpdateWindow(presSurfaceInfo.hwnd);
-
 					// create presentation surface
-					if (
-#ifdef _WIN32
-						vkCreateWin32SurfaceKHR(inst, &presSurfaceInfo, alloc, presSurfacePtr)
-#else	// !_WIN32
-#endif	// _WIN32
-						)
+					if (vkCreateWin32SurfaceKHR(inst, &presSurfaceInfo, alloc, presSurfacePtr) == VK_SUCCESS)
 					{
 						printf(" Vulkan presentation surface created. \n");
 
@@ -686,6 +795,8 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 						return 0;
 					}
 				}
+#else	// !_WIN32
+#endif	// _WIN32
 				
 				// surface failure
 				printf(" Vulkan presentation surface creation failed. \n");
@@ -908,6 +1019,9 @@ int cvkRendererTest(cvkRenderer* const renderer)
 
 		// begin testing
 		printf("cvkRendererTest \n");
+
+		// window loop
+		result = cvkRendererInternalWindowMainLoop();
 
 		// success
 		if (!result)
