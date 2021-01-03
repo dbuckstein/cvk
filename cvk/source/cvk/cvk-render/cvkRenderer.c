@@ -315,13 +315,23 @@ int cvkRendererInternalCreateWindowDefault(HWND* windowPtr)
 	return -1;
 }
 
-int cvkRendererInternalWindowMainLoop()
+int cvkRendererInternalWindowMainLoop(kptr const data)
 {
+	//int cvkRendererInternalIdle(cvkRenderer_vk* const renderer);
+	int cvkRendererInternalIdle(kptr const renderer);
+
+	// message and result
 	MSG message[1] = { 0 };
 	BOOL result;
-	while (result = GetMessage(message, NULL, 0, 0))
+
+	// main loop
+	while (message->message != WM_QUIT)
+		//while (result = GetMessage(message, NULL, 0, 0))
 	{
 		// message
+		result = PeekMessage(message, NULL, 0, 0, PM_REMOVE);
+
+		// window message
 		if (result > 0)
 		{
 			TranslateMessage(message);
@@ -330,10 +340,19 @@ int cvkRendererInternalWindowMainLoop()
 		// error
 		else if (result < 0)
 		{
+
 		}
-		// quit
+		// idle
 		else
-			break;
+		{
+			cvkRendererInternalIdle(data);
+
+			// query device functions
+			//result = vkAcquireNextImageKHR(logicalDevice, swapchain, timeout, semaphore, fence, imageIndexPtr);
+
+			//quit(GetMessage)
+			//break;
+		}
 	}
 
 	// unregister window class
@@ -349,6 +368,62 @@ int cvkRendererInternalWindowMainLoop()
 
 
 //-----------------------------------------------------------------------------
+
+// cvkRenderer_vk
+//	Internal representation of VK renderer data.
+typedef struct cvkRenderer_vk
+{
+	// renderer-specific handles
+	VkInstance inst;						// renderer instance
+	VkDevice logicalDevice;					// logical device from selected hardware
+	VkSurfaceKHR presSurface;				// presentation surface for window display
+	VkQueue graphicsQueue;					// primary queue used for graphics
+	VkDebugReportCallbackEXT debugReport;	// debug report callbacks extension
+
+	// non-renderer-specific handles
+	VkAllocationCallbacks* alloc;			// allocation callbacks for memory management
+} cvkRenderer_vk;
+
+
+//-----------------------------------------------------------------------------
+
+int cvkRendererInternalAllocSetup(VkAllocationCallbacks** const allocPtr)
+{
+	int result = -1;
+	VkAllocationCallbacks* alloc = NULL;
+
+	// create instance and data
+	//alloc = (VkAllocationCallbacks*)malloc(sizeof(VkAllocationCallbacks));
+	if (alloc)
+	{
+		//alloc->pUserData = malloc(0);
+
+		// success
+		result = 0;
+	}
+
+	// done
+	*allocPtr = alloc;
+	return result;
+}
+
+int cvkRendererInternalAllocCleanup(VkAllocationCallbacks* const alloc)
+{
+	int result = -1;
+
+	// delete data and instance
+	if (alloc)
+	{
+		free(alloc->pUserData);
+		free(alloc);
+
+		// success
+		result = 0;
+	}
+
+	// done
+	return result;
+}
 
 //PFN_vkDebugReportCallbackEXT
 VkBool32 cvkRendererInternalDebugCallback(
@@ -379,9 +454,7 @@ VkBool32 cvkRendererInternalDebugCallback(
 
 //-----------------------------------------------------------------------------
 
-int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
-	VkInstance* const instPtr, VkDevice* const logicalDevicePtr, VkSurfaceKHR* const presSurfacePtr,
-	VkDebugReportCallbackEXT* const debugReportPtr)
+int cvkRendererInternalCreate(cvkRenderer_vk* const renderer)
 {
 	int n = -1;
 	ui32 i = 0, j = 0, k = 0;
@@ -389,12 +462,17 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	kstr const pf1 = "\t  ", pf1s = "\t->", pf2 = "\t\t  ", pf2s = "\t\t->", pf3 = "\t\t\t  ", pf3s = "\t\t\t->";
 	VkResult result = VK_SUCCESS;
 
+	// internal maximums
+	enum cvkRendererMax_vk
+	{
+		cvkRendererMax_queueFamily = 16,	// convenience
+		cvkRendererMax_queuePerFamily = 16,	// standard
+	};
+
 
 	//---------------------------------------------------------------------
 	// instance data
 
-	// instance handle
-	VkInstance inst = NULL;
 	// data for instance, layers and extensions
 	ui32 instVersion = 0, nLayer = 0, nExtension = 0;
 	// array of layer info
@@ -495,8 +573,6 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	//---------------------------------------------------------------------
 	// logical device data
 
-	// logical device
-	VkDevice logicalDevice = NULL;
 	// info for physical devices
 	ui32 nPhysicalDevice = 0;
 	// physical device used to create logical device
@@ -559,19 +635,19 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	ui32 nQueueFamily = 0;
 	// queue family index to use for graphics and presentation
 	i32 queueFamilyIndex = -1;
-	// queue count in selected family and across all families
-	ui32 queueCount = 0, queueCountTotal = 0;
-	// priorities list
-	f32* queuePriority = NULL;
+	// queue count in selected family
+	ui32 queueCount = 0;
+	// queue create info
+	VkDeviceQueueCreateInfo queueInfo[cvkRendererMax_queueFamily] = { 0 };
+	// priorities list for each family
+	f32 queuePriority[cvk_arrlen(queueInfo)][cvkRendererMax_queuePerFamily] = { 0 };
 	// queue creation info for logical device
 	//	-> copy for each queue family
 	//	-> need to update queue family index, count and priorities
 	VkDeviceQueueCreateInfo const queueInfoTmp = {
 		VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, NULL, 0,
-		queueFamilyIndex, queueCount, queuePriority, // update
+		queueFamilyIndex, queueCount, *queuePriority, // update
 	};
-	// queue creation info array
-	VkDeviceQueueCreateInfo* queueInfoArr = NULL;
 	// device queue family properties
 	VkQueueFamilyProperties* queueFamilyProp = NULL;
 
@@ -582,7 +658,7 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	//	-> need to update layer and extension counts
 	VkDeviceCreateInfo logicalDeviceInfo = {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, NULL, 0,
-		nQueueFamily, queueInfoArr, // update
+		nQueueFamily, queueInfo, // update
 		//cvk_arrlen_pl(layerInfoFinal_device, layerInfoLenFinal_device), layerInfoFinal_device,
 		0, NULL, // device layers deprecated
 		cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device), extInfoFinal_device,
@@ -593,14 +669,13 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	//---------------------------------------------------------------------
 	// presentation surface data
 
-	// presentation surface
-	VkSurfaceKHR presSurface = NULL;
 #ifdef _WIN32
 	// presentation surface creation info for Windows
 	//	-> need to update window handle
 	VkWin32SurfaceCreateInfoKHR presSurfaceInfo = {
 		VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR, NULL, 0,
-		GetModuleHandle(NULL), NULL,
+		GetModuleHandle(NULL),
+		NULL,	// update
 	};
 #else	// !_WIN32
 #endif	// _WIN32
@@ -621,6 +696,9 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 
 
 	//---------------------------------------------------------------------
+
+	// allocator setup
+	cvkRendererInternalAllocSetup(&renderer->alloc);
 
 	// instance setup
 	printf(" Vulkan instance... \n");
@@ -687,8 +765,8 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	assert(instInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst));
 
 	// create instance
-	result = vkCreateInstance(&instInfo, alloc, &inst);
-	if ((result == VK_SUCCESS) && inst)
+	result = vkCreateInstance(&instInfo, renderer->alloc, &renderer->inst);
+	if ((result == VK_SUCCESS) && renderer->inst)
 	{
 		printf(" Vulkan instance created. \n");
 
@@ -696,12 +774,12 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 		printf(" Vulkan logical device... \n");
 
 		// retrieve devices
-		result = vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, NULL);
+		result = vkEnumeratePhysicalDevices(renderer->inst, &nPhysicalDevice, NULL);
 		if (nPhysicalDevice)
 		{
 			// alloc device info
 			physicalDeviceList = (VkPhysicalDevice*)malloc(nLayer * sizeof(VkPhysicalDevice));
-			result = vkEnumeratePhysicalDevices(inst, &nPhysicalDevice, physicalDeviceList);
+			result = vkEnumeratePhysicalDevices(renderer->inst, &nPhysicalDevice, physicalDeviceList);
 			printf("\t nPhysicalDevice = %u: { \"name\" [type] (apiVer; driverVer; vendorID; deviceID) } \n", nPhysicalDevice);
 			for (i = 0; i < nPhysicalDevice; ++i)
 			{
@@ -785,17 +863,15 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 			{
 				// allocate and enumerate queue family properties
 				queueFamilyProp = (VkQueueFamilyProperties*)malloc(nQueueFamily * sizeof(VkQueueFamilyProperties));
-				queueInfoArr = (VkDeviceQueueCreateInfo*)malloc(nQueueFamily * sizeof(VkDeviceQueueCreateInfo));
 				vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamily, queueFamilyProp);
 				printf("\t\t nQueueFamily = %u: { [flags] (count; timestamp valid bits; min image transfer gran) } \n", nQueueFamily);
 				for (j = 0; j < nQueueFamily; ++j)
 				{
 					// copy create info template
-					queueInfoArr[j] = queueInfoTmp;
-					queueInfoArr[j].queueFamilyIndex = j;
-					queueCount = queueFamilyProp[j].queueCount;
-					queueCountTotal += queueCount;
-					queueInfoArr[j].queueCount = queueCount;
+					queueInfo[j] = queueInfoTmp;
+					queueInfo[j].queueFamilyIndex = j;
+					queueInfo[j].queueCount = queueFamilyProp[j].queueCount;
+					queueInfo[j].pQueuePriorities = queuePriority[j];
 
 					// save family index if it meets the requirements
 					// must also support graphics functionality and presentation
@@ -809,15 +885,6 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 						cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, (queueFamilyIndex = j), pf2s);
 					else
 						cvkRendererInternalPrintQueueFamily(queueFamilyProp + j, j, pf2);
-				}
-
-				// allocate and set priorities
-				if (queueCountTotal)
-				{
-					n = (queueCountTotal * sizeof(f32));
-					queuePriority = (f32*)memset(malloc(n), 0, n);
-					for (n = j = 0; j < nQueueFamily; n += queueInfoArr[j++].queueCount)
-						queueInfoArr[j].pQueuePriorities = (queuePriority + n);
 				}
 
 				// release queue family list
@@ -838,8 +905,9 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 			if (queueFamilyIndex >= 0)
 			{
 				logicalDeviceInfo.queueCreateInfoCount = 1;// nQueueFamily;
-				logicalDeviceInfo.pQueueCreateInfos = queueInfoArr + queueFamilyIndex;// queueInfoArr;
-				queueInfoArr[queueFamilyIndex].queueCount = 1;
+				logicalDeviceInfo.pQueueCreateInfos = queueInfo + queueFamilyIndex;// queueInfoArr;
+				queueInfo[queueFamilyIndex].queueCount = 1;
+				queuePriority[queueFamilyIndex][0] = 0.0f;
 			}
 
 			// get memory properties of device
@@ -860,12 +928,8 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 			assert(logicalDeviceInfo.enabledExtensionCount == cvk_arrlen_pl(extInfoFinal_device, extInfoLenFinal_device));
 
 			// create logical device
-			result = vkCreateDevice(physicalDevice, &logicalDeviceInfo, alloc, &logicalDevice);
-			free(queueInfoArr);
-			queueInfoArr = NULL;
-			free(queuePriority);
-			queuePriority = NULL;
-			if ((result == VK_SUCCESS) && logicalDevice)
+			result = vkCreateDevice(physicalDevice, &logicalDeviceInfo, renderer->alloc, &renderer->logicalDevice);
+			if ((result == VK_SUCCESS) && renderer->logicalDevice)
 			{
 				printf(" Vulkan logical device created. \n");
 
@@ -881,39 +945,45 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 				{
 #ifdef _WIN32
 					// create presentation surface
-					result = vkCreateWin32SurfaceKHR(inst, &presSurfaceInfo, alloc, &presSurface);
+					result = vkCreateWin32SurfaceKHR(renderer->inst, &presSurfaceInfo, renderer->alloc, &renderer->presSurface);
 #else	// !_WIN32
 #endif	// _WIN32
-					if ((result == VK_SUCCESS && presSurface))
+					if ((result == VK_SUCCESS && renderer->presSurface))
 					{
 						printf(" Vulkan presentation surface created. \n");
 
-						// configure surface
 						// query instance functions
-						result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, presSurface, &surfaceQueueFamilySupport);
+						result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, renderer->presSurface, &surfaceQueueFamilySupport);
 						if ((result == VK_SUCCESS) && surfaceQueueFamilySupport)
 						{
-							// get capabilities
-							result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, presSurface, &presSurfaceCap);
-
 							// get formats
-							result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, presSurface, &nSurfaceFormat, NULL);
+							// query instance functions
+							result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, renderer->presSurface, &nSurfaceFormat, NULL);
 							if ((result == VK_SUCCESS) && nSurfaceFormat)
 							{
 								surfaceFormat = (VkSurfaceFormatKHR*)malloc(nSurfaceFormat * sizeof(VkSurfaceFormatKHR));
-								result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, presSurface, &nSurfaceFormat, surfaceFormat);
+								result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, renderer->presSurface, &nSurfaceFormat, surfaceFormat);
 
 								// get presentation modes
-								result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, presSurface, &nPresentMode, NULL);
+								// query instance functions
+								result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, renderer->presSurface, &nPresentMode, NULL);
 								if ((result == VK_SUCCESS) && nPresentMode)
 								{
 									surfacePresentMode = (VkPresentModeKHR*)malloc(nPresentMode * sizeof(VkPresentModeKHR));
-									result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, presSurface, &nPresentMode, surfacePresentMode);
+									result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, renderer->presSurface, &nPresentMode, surfacePresentMode);
+
+									// get capabilities
+									// query instance functions
+									result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, renderer->presSurface, &presSurfaceCap);
+
+									// get queue
+									vkGetDeviceQueue(renderer->logicalDevice, queueFamilyIndex, 0, &renderer->graphicsQueue);
 
 									// query device functions
 									//result = vkCreateSwapchainKHR(logicalDevice, &swapchainInfo, alloc, &swapchain);
+									// query device functions
 									//result = vkGetSwapchainImagesKHR(logicalDevice, swapchain, &nSwapchainImage, NULL);
-									//result = vkAcquireNextImageKHR(logicalDevice, swapchain, timeout, semaphore, fence, imageIndexPtr);
+									// query device functions
 									//result = vkQueuePresentKHR(queue, &queuePresentInfo);
 
 									// release presentation modes
@@ -929,26 +999,21 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 
 #ifdef _DEBUG
 						// debug report callback
-						if (debugReportPtr)
+						if (!renderer->debugReport)
 						{
 							// set up debugging
 							printf(" Vulkan debug report callback... \n");
 							result = VK_TRUE;
-							vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(inst, "vkCreateDebugReportCallbackEXT");
-							//vkDebugReportMessageEXT = (PFN_vkDebugReportMessageEXT)vkGetInstanceProcAddr(inst, "vkGetInstanceProcAddr");
+							vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(renderer->inst, "vkCreateDebugReportCallbackEXT");
+							//vkDebugReportMessageEXT = (PFN_vkDebugReportMessageEXT)vkGetInstanceProcAddr(renderer->inst, "vkGetInstanceProcAddr");
 							if (vkCreateDebugReportCallbackEXT)
-								result = vkCreateDebugReportCallbackEXT(inst, &debugInfo, alloc, debugReportPtr);
-							if ((result == VK_SUCCESS) && *debugReportPtr)
+								result = vkCreateDebugReportCallbackEXT(renderer->inst, &debugInfo, renderer->alloc, &renderer->debugReport);
+							if ((result == VK_SUCCESS) && renderer->debugReport)
 								printf(" Vulkan debug report callback created. \n");
 							else
 								printf(" Vulkan debug report callback creation failed. \n");
 						}
 #endif	// _DEBUG
-
-						// assign final values
-						*instPtr = inst;
-						*logicalDevicePtr = logicalDevice;
-						*presSurfacePtr = presSurface;
 
 						// done
 						return 0;
@@ -971,9 +1036,7 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	return -1;
 }
 
-int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
-	VkInstance const inst, VkDevice const logicalDevice, VkSurfaceKHR const presSurface,
-	VkDebugReportCallbackEXT const debugReport)
+int cvkRendererInternalRelease(cvkRenderer_vk* const renderer)
 {
 #ifdef _DEBUG
 	// destroy debug report callback function pointer
@@ -981,12 +1044,12 @@ int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
 #endif	// _DEBUG
 
 #ifdef _DEBUG
-	if (debugReport)
+	if (renderer->debugReport)
 	{
 		// cleanup debugging
-		vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(inst, "vkDestroyDebugReportCallbackEXT");
+		vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(renderer->inst, "vkDestroyDebugReportCallbackEXT");
 		if (vkDestroyDebugReportCallbackEXT)
-			vkDestroyDebugReportCallbackEXT(inst, debugReport, alloc);
+			vkDestroyDebugReportCallbackEXT(renderer->inst, renderer->debugReport, renderer->alloc);
 	}
 #endif	// _DEBUG
 
@@ -997,83 +1060,32 @@ int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
 
 	// presentation surface
 	// query instance functions
-	if (presSurface)
-		vkDestroySurfaceKHR(inst, presSurface, alloc);
+	if (renderer->presSurface)
+		vkDestroySurfaceKHR(renderer->inst, renderer->presSurface, renderer->alloc);
 
 	// logical device
 	// wait for device to finish work
-	if (logicalDevice)
-		if (vkDeviceWaitIdle(logicalDevice) == VK_SUCCESS)
-			vkDestroyDevice(logicalDevice, alloc);
+	if (renderer->logicalDevice)
+		if (vkDeviceWaitIdle(renderer->logicalDevice) == VK_SUCCESS)
+			vkDestroyDevice(renderer->logicalDevice, renderer->alloc);
 
 	// instance
-	if (inst)
-		vkDestroyInstance(inst, alloc);
+	if (renderer->inst)
+		vkDestroyInstance(renderer->inst, renderer->alloc);
+
+	// other data deallocations
+	cvkRendererInternalAllocCleanup(renderer->alloc);
 
 	// done
 	return 0;
 }
 
-int cvkRendererInternalAllocSetup(VkAllocationCallbacks** const allocPtr)
+int cvkRendererInternalIdle(cvkRenderer_vk* const renderer)
 {
-	int result = -1;
-	VkAllocationCallbacks* alloc = NULL;
-
-	// create instance and data
-	//alloc = (VkAllocationCallbacks*)malloc(sizeof(VkAllocationCallbacks));
-	if (alloc)
-	{
-		//alloc->pUserData = malloc(0);
-
-		// success
-		result = 0;
-	}
 
 	// done
-	*allocPtr = alloc;
-	return result;
+	return 0;
 }
-
-int cvkRendererInternalAllocCleanup(VkAllocationCallbacks* const alloc)
-{
-	int result = -1;
-
-	// delete data and instance
-	if (alloc)
-	{
-		free(alloc->pUserData);
-		free(alloc);
-
-		// success
-		result = 0;
-	}
-
-	// done
-	return result;
-}
-
-
-//-----------------------------------------------------------------------------
-
-// cvkRendererData_vk
-//	Internal data/handle indices for renderer instance.
-enum cvkRendererData_vk
-{
-	cvkRendererData_instance,		// instance
-	cvkRendererData_logicalDevice,	// logical device
-	cvkRendererData_presSurface,	// presentation surface
-	cvkRendererData_debugReport,			// debug callback
-
-	// maximum number of renderer handles, start counting non-handle data here
-	cvkRendererData_count
-};
-
-// cvkRendererData
-//	Internal data not involved with renderer.
-enum cvkRendererData
-{
-	cvkRendererData_allocation = cvkRendererData_count,	// global memory management
-};
 
 
 //-----------------------------------------------------------------------------
@@ -1084,29 +1096,14 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 	{
 		int result = 0;
 
-		// instance
-		VkInstance inst = NULL;
-
-		// logical device
-		VkDevice logicalDevice = NULL;
-
-		// presentation surface
-		VkSurfaceKHR presSurface = NULL;
-
-		// debug report
-		VkDebugReportCallbackEXT debugReport = NULL;
-
-		// global memory management
-		VkAllocationCallbacks* alloc = NULL;
+		// renderer data
+		cvkRenderer_vk data[1] = { 0 };
 
 		// begin setup
 		printf("cvkRendererCreate \n");
 
-		// allocator setup
-		cvkRendererInternalAllocSetup(&alloc);
-
 		// internal create
-		result = cvkRendererInternalCreate(alloc, &inst, &logicalDevice, &presSurface, &debugReport);
+		result = cvkRendererInternalCreate(data);
 
 		// success
 		if (!result)
@@ -1114,23 +1111,15 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			// raise init flag
 			renderer->init = true;
 
-			// set persistent renderer data
-			renderer->data[cvkRendererData_instance] = inst;
-			renderer->data[cvkRendererData_logicalDevice] = logicalDevice;
-			renderer->data[cvkRendererData_presSurface] = presSurface;
-			renderer->data[cvkRendererData_debugReport] = debugReport;
-
-			// set persistent non-renderer data
-			renderer->data[cvkRendererData_allocation] = alloc;
+			// copy data
+			memcpy(renderer->data, data, sizeof(data));
 
 			// done
 			return result;
 		}
 
 		// failure
-		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, debugReport);
-		cvkRendererInternalAllocCleanup(alloc);
-		memset(renderer->data, 0, sizeof(renderer->data));
+		result = cvkRendererInternalRelease(data);
 		return -2;
 	}
 	return -1;
@@ -1143,33 +1132,18 @@ int cvkRendererRelease(cvkRenderer* const renderer)
 	{
 		int result = 0;
 
-		// retrieve instance
-		VkInstance inst = (VkInstance)renderer->data[cvkRendererData_instance];
-
-		// retrieve logical device
-		VkDevice logicalDevice = (VkDevice)renderer->data[cvkRendererData_logicalDevice];
-
-		// retrieve presentation surface
-		VkSurfaceKHR presSurface = (VkSurfaceKHR)renderer->data[cvkRendererData_presSurface];
-
-		// retrieve debug report callback
-		VkDebugReportCallbackEXT debugReport = (VkDebugReportCallbackEXT)renderer->data[cvkRendererData_debugReport];
-
-		// retrieve global memory management
-		VkAllocationCallbacks* alloc = (VkAllocationCallbacks*)renderer->data[cvkRendererData_allocation];
+		// retrieve data
+		cvkRenderer_vk* data = (cvkRenderer_vk*)renderer->data;
 
 		// begin termination
 		printf("cvkRendererRelease \n");
 
 		// destroy data in reverse order
-		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, debugReport);
+		result = cvkRendererInternalRelease(data);
 
 		// success
 		if (!result)
 		{
-			// other data deallocations
-			cvkRendererInternalAllocCleanup(alloc);
-
 			// reset persistent data
 			memset(renderer->data, 0, sizeof(renderer->data));
 
@@ -1197,7 +1171,7 @@ int cvkRendererTest(cvkRenderer* const renderer)
 		printf("cvkRendererTest \n");
 
 		// window loop
-		result = cvkRendererInternalWindowMainLoop();
+		result = cvkRendererInternalWindowMainLoop(renderer->data);
 
 		// success
 		if (!result)

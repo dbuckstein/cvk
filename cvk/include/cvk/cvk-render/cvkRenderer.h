@@ -34,6 +34,12 @@ extern "C" {
 
 //-----------------------------------------------------------------------------
 
+// cvkRendererMax
+//	Maximum counts for renderer components.
+enum cvkRendererMax
+{
+	cvkRendererMax_dataCount = 16,	// maximum data 
+};
 
 
 //-----------------------------------------------------------------------------
@@ -44,8 +50,8 @@ extern "C" {
 //		member data: internal data
 typedef struct cvkRenderer
 {
-	bool init;		// Initialized flag.
-	ptr data[5];	// Internal data.
+	bool init;							// Initialized flag.
+	ptr data[cvkRendererMax_dataCount];	// Internal data.
 } cvkRenderer;
 
 
