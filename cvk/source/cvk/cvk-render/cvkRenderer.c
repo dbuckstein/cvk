@@ -471,6 +471,8 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 #ifdef _DEBUG
 	// create debug report callback function pointer
 	PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT = NULL;
+	// message debug report
+	PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT = NULL;
 	// debug report callback info
 	VkDebugReportCallbackCreateInfoEXT const debugInfo = {
 		VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT, NULL,
@@ -602,6 +604,20 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	};
 #else	// !_WIN32
 #endif	// _WIN32
+
+	// test whether queue family supports presentation surface
+	VkBool32 surfaceQueueFamilySupport = VK_FALSE;
+	// presentation surface counts
+	ui32 nSurfaceFormat = 0, nPresentMode = 0;
+	// presentation surface capabilities
+	VkSurfaceCapabilitiesKHR presSurfaceCap = { 0 };
+	// presentation surface format array
+	VkSurfaceFormatKHR* surfaceFormat = NULL;
+	// presentation surface modes
+	VkPresentModeKHR* surfacePresentMode = NULL;
+
+	// swapchain count
+	ui32 nSwapchainImage = 0;
 
 
 	//---------------------------------------------------------------------
@@ -872,13 +888,54 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 					{
 						printf(" Vulkan presentation surface created. \n");
 
+						// configure surface
+						// query instance functions
+						result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, presSurface, &surfaceQueueFamilySupport);
+						if ((result == VK_SUCCESS) && surfaceQueueFamilySupport)
+						{
+							// get capabilities
+							result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, presSurface, &presSurfaceCap);
+
+							// get formats
+							result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, presSurface, &nSurfaceFormat, NULL);
+							if ((result == VK_SUCCESS) && nSurfaceFormat)
+							{
+								surfaceFormat = (VkSurfaceFormatKHR*)malloc(nSurfaceFormat * sizeof(VkSurfaceFormatKHR));
+								result = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, presSurface, &nSurfaceFormat, surfaceFormat);
+
+								// get presentation modes
+								result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, presSurface, &nPresentMode, NULL);
+								if ((result == VK_SUCCESS) && nPresentMode)
+								{
+									surfacePresentMode = (VkPresentModeKHR*)malloc(nPresentMode * sizeof(VkPresentModeKHR));
+									result = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, presSurface, &nPresentMode, surfacePresentMode);
+
+									// query device functions
+									//result = vkCreateSwapchainKHR(logicalDevice, &swapchainInfo, alloc, &swapchain);
+									//result = vkGetSwapchainImagesKHR(logicalDevice, swapchain, &nSwapchainImage, NULL);
+									//result = vkAcquireNextImageKHR(logicalDevice, swapchain, timeout, semaphore, fence, imageIndexPtr);
+									//result = vkQueuePresentKHR(queue, &queuePresentInfo);
+
+									// release presentation modes
+									free(surfacePresentMode);
+									surfacePresentMode = NULL;
+								}
+
+								// release formats
+								free(surfaceFormat);
+								surfaceFormat = NULL;
+							}
+						}
+
 #ifdef _DEBUG
+						// debug report callback
 						if (debugReportPtr)
 						{
 							// set up debugging
 							printf(" Vulkan debug report callback... \n");
 							result = VK_TRUE;
 							vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(inst, "vkCreateDebugReportCallbackEXT");
+							//vkDebugReportMessageEXT = (PFN_vkDebugReportMessageEXT)vkGetInstanceProcAddr(inst, "vkGetInstanceProcAddr");
 							if (vkCreateDebugReportCallbackEXT)
 								result = vkCreateDebugReportCallbackEXT(inst, &debugInfo, alloc, debugReportPtr);
 							if ((result == VK_SUCCESS) && *debugReportPtr)
@@ -933,7 +990,13 @@ int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
 	}
 #endif	// _DEBUG
 
+	// swapchain
+	// query device functions
+	//if (swapchain)
+	//	vkDestroySwapchainKHR(logicalDevice, swapchain, alloc);
+
 	// presentation surface
+	// query instance functions
 	if (presSurface)
 		vkDestroySurfaceKHR(inst, presSurface, alloc);
 
