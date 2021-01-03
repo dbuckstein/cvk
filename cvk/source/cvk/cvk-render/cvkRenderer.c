@@ -350,8 +350,38 @@ int cvkRendererInternalWindowMainLoop()
 
 //-----------------------------------------------------------------------------
 
+//PFN_vkDebugReportCallbackEXT
+VkBool32 cvkRendererInternalDebugCallback(
+	VkDebugReportFlagsEXT const flags, VkDebugReportObjectTypeEXT const objectType,
+	ui64 const object, size const location,
+	i32 const messageCode, kstr const pLayerPrefix, kstr const pMessage,
+	ptr const pUserData)
+{
+	// print debug info
+	if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT)
+		printf("cvk Debug INFO (%s, #%d): %s \n", pLayerPrefix, messageCode, pMessage);
+	else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+		printf("cvk Debug WARNING (%s, #%d): %s \n", pLayerPrefix, messageCode, pMessage);
+	else if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+		printf("cvk Debug PERFORMANCE WARNING (%s, #%d): %s \n", pLayerPrefix, messageCode, pMessage);
+	else if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+		printf("cvk Debug ERROR (%s, #%d): %s \n", pLayerPrefix, messageCode, pMessage);
+	else if (flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
+		printf("cvk Debug DEBUG (%s, #%d): %s \n", pLayerPrefix, messageCode, pMessage);
+	// not handled
+	else
+		return VK_FALSE;
+
+	// handled, but should still return false according to spec
+	return VK_SUCCESS;
+}
+
+
+//-----------------------------------------------------------------------------
+
 int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
-	VkInstance* const instPtr, VkDevice* const logicalDevicePtr, VkSurfaceKHR* const presSurfacePtr)
+	VkInstance* const instPtr, VkDevice* const logicalDevicePtr, VkSurfaceKHR* const presSurfacePtr,
+	VkDebugReportCallbackEXT* const debugReportPtr)
 {
 	int n = -1;
 	ui32 i = 0, j = 0, k = 0;
@@ -376,10 +406,18 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	kstr const layerInfo_inst[] = {
 #ifdef _DEBUG
 		"VK_LAYER_KHRONOS_validation",
-		"VK_LAYER_LUNARG_api_dump",
 		"VK_LAYER_LUNARG_standard_validation",
+	/*	// included in standard validation (7): 
+		"VK_LAYER_GOOGLE_threading",
+		"VK_LAYER_LUNARG_parameter_validation",
+		"VK_LAYER_LUNARG_object_tracker",
+		"VK_LAYER_LUNARG_image",
+		"VK_LAYER_LUNARG_core_validation",
+		"VK_LAYER_LUNARG_swapchain",
+		"VK_LAYER_GOOGLE_unique_objects",	*/
+		"VK_LAYER_LUNARG_api_dump",
 		//"VK_LAYER_LUNARG_monitor",
-		//"VK_LAYER_LUNARG_object_tracker",
+		//"VK_LAYER_LUNARG_screenshot",
 #endif	// _DEBUG
 		NULL
 	};
@@ -399,9 +437,10 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	// extensions to be searched and enabled for instance
 	kstr const extInfo_inst[] = {
 #ifdef _DEBUG
-		"VK_EXT_debug_report",
-		"VK_EXT_debug_utils",
-		"VK_EXT_validation_features",
+		// included with KHR validation layer (3): 
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+		VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME,
 #endif	// _DEBUG
 		NULL
 	};
@@ -429,10 +468,23 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 		"cvkTest", VK_MAKE_VERSION(0, 0, 1), "cvk", VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_0,
 	};
 
+#ifdef _DEBUG
+	// create debug report callback function pointer
+	PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT = NULL;
+	// debug report callback info
+	VkDebugReportCallbackCreateInfoEXT const debugInfo = {
+		VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT, NULL,
+		(VK_DEBUG_REPORT_INFORMATION_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_DEBUG_BIT_EXT),
+		cvkRendererInternalDebugCallback, NULL,
+	}, * const debugInfoPtr = NULL;// &debugInfo;
+#else	// !_DEBUG
+	ptr const debugInfoPtr = NULL;
+#endif	// _DEBUG
+
 	// instance initialization info
 	//	-> need to update layer and extension counts
 	VkInstanceCreateInfo instInfo = {
-		VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &appInfo,
+		VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, debugInfoPtr, 0, &appInfo,
 		cvk_arrlen_pl(layerInfoFinal_inst, layerInfoLenFinal_inst), layerInfoFinal_inst,
 		cvk_arrlen_pl(extInfoFinal_inst, extInfoLenFinal_inst), extInfoFinal_inst,
 	};
@@ -460,8 +512,8 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	kstr const layerInfo_device[] = {
 #ifdef _DEBUG
 		"VK_LAYER_KHRONOS_validation",
-		"VK_LAYER_LUNARG_api_dump",
 		"VK_LAYER_LUNARG_standard_validation",
+		"VK_LAYER_LUNARG_api_dump",
 #endif	// _DEBUG
 		NULL
 	};
@@ -481,9 +533,10 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 	// extensions to be searched and enabled for device
 	kstr const extInfo_device[] = {
 #ifdef _DEBUG
-		"VK_EXT_validation_cache",
-		"VK_EXT_debug_marker",
-		"VK_EXT_tooling_info",
+		// included with KHR validation layer (3): 
+		VK_EXT_VALIDATION_CACHE_EXTENSION_NAME,
+		VK_EXT_DEBUG_MARKER_EXTENSION_NAME,
+		VK_EXT_TOOLING_INFO_EXTENSION_NAME,
 #endif	// _DEBUG
 		NULL
 	};
@@ -819,6 +872,21 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 					{
 						printf(" Vulkan presentation surface created. \n");
 
+#ifdef _DEBUG
+						if (debugReportPtr)
+						{
+							// set up debugging
+							printf(" Vulkan debug report callback... \n");
+							result = VK_TRUE;
+							vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(inst, "vkCreateDebugReportCallbackEXT");
+							if (vkCreateDebugReportCallbackEXT)
+								result = vkCreateDebugReportCallbackEXT(inst, &debugInfo, alloc, debugReportPtr);
+							if ((result == VK_SUCCESS) && *debugReportPtr)
+								printf(" Vulkan debug report callback created. \n");
+							else
+								printf(" Vulkan debug report callback creation failed. \n");
+						}
+#endif	// _DEBUG
 
 						// assign final values
 						*instPtr = inst;
@@ -847,23 +915,40 @@ int cvkRendererInternalCreate(VkAllocationCallbacks const* const alloc,
 }
 
 int cvkRendererInternalRelease(VkAllocationCallbacks const* const alloc,
-	VkInstance const inst, VkDevice const logicalDevice, VkSurfaceKHR const presSurface)
+	VkInstance const inst, VkDevice const logicalDevice, VkSurfaceKHR const presSurface,
+	VkDebugReportCallbackEXT const debugReport)
 {
-	// destroy data in reverse order once logical device finishes work
-	int result = (vkDeviceWaitIdle(logicalDevice) == VK_SUCCESS);
+#ifdef _DEBUG
+	// destroy debug report callback function pointer
+	PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT = NULL;
+#endif	// _DEBUG
+
+#ifdef _DEBUG
+	if (debugReport)
+	{
+		// cleanup debugging
+		vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(inst, "vkDestroyDebugReportCallbackEXT");
+		if (vkDestroyDebugReportCallbackEXT)
+			vkDestroyDebugReportCallbackEXT(inst, debugReport, alloc);
+	}
+#endif	// _DEBUG
 
 	// presentation surface
-	vkDestroySurfaceKHR(inst, presSurface, alloc);
+	if (presSurface)
+		vkDestroySurfaceKHR(inst, presSurface, alloc);
 
 	// logical device
-	vkDestroyDevice(logicalDevice, alloc);
+	// wait for device to finish work
+	if (logicalDevice)
+		if (vkDeviceWaitIdle(logicalDevice) == VK_SUCCESS)
+			vkDestroyDevice(logicalDevice, alloc);
 
 	// instance
-	vkDestroyInstance(inst, alloc);
+	if (inst)
+		vkDestroyInstance(inst, alloc);
 
 	// done
-	result = -(!result);
-	return result;
+	return 0;
 }
 
 int cvkRendererInternalAllocSetup(VkAllocationCallbacks** const allocPtr)
@@ -914,6 +999,7 @@ enum cvkRendererData_vk
 	cvkRendererData_instance,		// instance
 	cvkRendererData_logicalDevice,	// logical device
 	cvkRendererData_presSurface,	// presentation surface
+	cvkRendererData_debugReport,			// debug callback
 
 	// maximum number of renderer handles, start counting non-handle data here
 	cvkRendererData_count
@@ -941,8 +1027,11 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		// logical device
 		VkDevice logicalDevice = NULL;
 
-		// surface
+		// presentation surface
 		VkSurfaceKHR presSurface = NULL;
+
+		// debug report
+		VkDebugReportCallbackEXT debugReport = NULL;
 
 		// global memory management
 		VkAllocationCallbacks* alloc = NULL;
@@ -954,7 +1043,7 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		cvkRendererInternalAllocSetup(&alloc);
 
 		// internal create
-		result = cvkRendererInternalCreate(alloc, &inst, &logicalDevice, &presSurface);
+		result = cvkRendererInternalCreate(alloc, &inst, &logicalDevice, &presSurface, &debugReport);
 
 		// success
 		if (!result)
@@ -966,6 +1055,7 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 			renderer->data[cvkRendererData_instance] = inst;
 			renderer->data[cvkRendererData_logicalDevice] = logicalDevice;
 			renderer->data[cvkRendererData_presSurface] = presSurface;
+			renderer->data[cvkRendererData_debugReport] = debugReport;
 
 			// set persistent non-renderer data
 			renderer->data[cvkRendererData_allocation] = alloc;
@@ -975,7 +1065,7 @@ int cvkRendererCreate(cvkRenderer* const renderer)
 		}
 
 		// failure
-		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface);
+		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, debugReport);
 		cvkRendererInternalAllocCleanup(alloc);
 		memset(renderer->data, 0, sizeof(renderer->data));
 		return -2;
@@ -999,14 +1089,17 @@ int cvkRendererRelease(cvkRenderer* const renderer)
 		// retrieve presentation surface
 		VkSurfaceKHR presSurface = (VkSurfaceKHR)renderer->data[cvkRendererData_presSurface];
 
+		// retrieve debug report callback
+		VkDebugReportCallbackEXT debugReport = (VkDebugReportCallbackEXT)renderer->data[cvkRendererData_debugReport];
+
 		// retrieve global memory management
 		VkAllocationCallbacks* alloc = (VkAllocationCallbacks*)renderer->data[cvkRendererData_allocation];
 
 		// begin termination
 		printf("cvkRendererRelease \n");
 
-		// internal cleanup
-		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface);
+		// destroy data in reverse order
+		result = cvkRendererInternalRelease(alloc, inst, logicalDevice, presSurface, debugReport);
 
 		// success
 		if (!result)
